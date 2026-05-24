@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cxporter MCP"
+  short_description: "Use Codex-authenticated MCP servers"
+  default_prompt: "Use $cxporter-mcp to list available Codex-authenticated MCP servers and call a tool."

@@ -141,3 +141,10 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Rust
+target/
+**/target/
+
+# Local Codex checkout left over from earlier path dependency experiments
+vendor/codex/
