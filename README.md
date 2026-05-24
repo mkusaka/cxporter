@@ -31,6 +31,7 @@ cargo run -- list --server codex_apps
 cargo run -- apps
 cargo run -- schema codex_apps github_fetch_pr
 cargo run -- call codex_apps <tool_name> '{"query":"hello"}'
+cargo run -- serve --server codex_apps
 ```
 
 Pass Codex config overrides through to Codex config loading with `--config`:
@@ -56,6 +57,27 @@ launch Codex hidden helper modes.
   manager.
 - `apps`: lists accessible Codex apps/connectors discovered from `codex_apps`
   tools.
+- `serve`: runs a stdio MCP server that exports the currently available
+  Codex-authenticated MCP tools as its own tools.
+
+`serve` loads the downstream tools once at startup and exposes each tool with a
+namespaced MCP tool name. Internal apps/connectors are grouped under the
+`codex_apps` server name, so `github_fetch_pr` is exported as
+`codex_apps.github.fetch_pr`. Registered MCP servers are exported as
+`<server>.<tool>`. Use `--server` one or more times to limit the exported
+surface:
+
+```bash
+cxporter serve --server codex_apps
+```
+
+Register it as an MCP server from another client with stdio transport:
+
+```toml
+[mcp_servers.cxporter]
+command = "cxporter"
+args = ["serve", "--server", "codex_apps"]
+```
 
 For example, `github_fetch_pr` currently expects `repo_full_name` and
 `pr_number`:

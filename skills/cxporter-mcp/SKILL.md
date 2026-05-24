@@ -10,6 +10,8 @@ description: Use when Codex needs to list, inspect, or directly call MCP servers
 Use `cxporter` to operate MCP servers through Codex-owned config and auth. Treat
 `cxporter` as a direct MCP client: it loads Codex config/auth, lists servers and
 tools, shows schemas, and calls tools without creating a Codex LLM thread.
+It can also run as a stdio MCP server that re-exports those downstream tools
+with stable namespace-style names.
 
 ## Invocation
 
@@ -91,6 +93,26 @@ Read a resource:
 
 ```bash
 skills/cxporter-mcp/scripts/cxporter.sh resource <server> <uri>
+```
+
+Run as an MCP server:
+
+```bash
+skills/cxporter-mcp/scripts/cxporter.sh serve --server codex_apps
+```
+
+When serving, cxporter loads downstream tools at startup and exposes them as MCP
+tools named `<server>.<connector>.<tool>` for apps, or `<server>.<tool>` for
+ordinary registered MCP servers. For example, raw `codex_apps` tool
+`github_fetch_pr` is exported as `codex_apps.github.fetch_pr`.
+
+Register an installed cxporter binary in another MCP client with stdio
+transport:
+
+```toml
+[mcp_servers.cxporter]
+command = "cxporter"
+args = ["serve", "--server", "codex_apps"]
 ```
 
 ## Error Handling

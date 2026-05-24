@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::env;
 use std::io::Write;
 use std::path::Path;
@@ -47,12 +48,26 @@ use codex_protocol::protocol::McpAuthStatus;
 use codex_utils_absolute_path::AbsolutePathBufGuard;
 use codex_utils_cli::CliConfigOverrides;
 use codex_utils_home_dir::find_codex_home;
+use rmcp::ServerHandler;
+use rmcp::ServiceExt;
+use rmcp::model::CallToolRequestParams;
+use rmcp::model::CallToolResult as RmcpCallToolResult;
 use rmcp::model::ElicitationCapability;
+use rmcp::model::ErrorData as McpError;
 use rmcp::model::FormElicitationCapability;
+use rmcp::model::Implementation;
+use rmcp::model::ListToolsResult;
+use rmcp::model::PaginatedRequestParams;
 use rmcp::model::ReadResourceRequestParams;
+use rmcp::model::ServerCapabilities;
+use rmcp::model::ServerInfo;
+use rmcp::model::Tool;
 use rmcp::model::UrlElicitationCapability;
+use rmcp::service::RequestContext;
+use rmcp::service::RoleServer;
 use serde::Serialize;
 use serde_json::Value;
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Parser)]
@@ -116,6 +131,15 @@ enum Command {
     Apps {
         #[arg(long, help = "Bypass app caches.")]
         force: bool,
+    },
+    #[command(about = "Run as a stdio MCP server that proxies Codex-authenticated MCP tools.")]
+    Serve {
+        #[arg(
+            long,
+            value_name = "SERVER",
+            help = "Only export tools from this MCP server. Repeat to include multiple servers."
+        )]
+        server: Vec<String>,
     },
 }
 
@@ -189,6 +213,24 @@ struct AppConnector {
     is_enabled: bool,
 }
 
+#[derive(Debug)]
+struct ExportedToolRoute {
+    server: String,
+    tool: String,
+}
+
+#[derive(Debug)]
+struct ExportedToolIndex {
+    tools: Vec<Tool>,
+    tools_by_name: HashMap<String, Tool>,
+    routes: HashMap<String, ExportedToolRoute>,
+}
+
+struct CxporterMcpServer {
+    bundle: Arc<Mutex<Option<ManagerBundle>>>,
+    index: Arc<ExportedToolIndex>,
+}
+
 #[tokio::main]
 async fn main() {
     if let Err(error) = run().await {
@@ -227,6 +269,9 @@ async fn run() -> Result<()> {
         Command::Apps { force } => {
             let connectors = list_apps(&state, force).await?;
             print_json(&connectors)?;
+        }
+        Command::Serve { server } => {
+            serve_mcp_server(&state, &server).await?;
         }
     }
 
@@ -375,12 +420,25 @@ async fn load_runtime_context(config: &RuntimeConfig) -> Result<McpRuntimeContex
 }
 
 async fn manager_bundle(state: &CodexState, server: Option<&str>) -> Result<ManagerBundle> {
+    let servers = server
+        .map(|server_name| vec![server_name.to_string()])
+        .unwrap_or_default();
+    manager_bundle_for_servers(state, &servers).await
+}
+
+async fn manager_bundle_for_servers(
+    state: &CodexState,
+    servers: &[String],
+) -> Result<ManagerBundle> {
     let mut mcp_servers = effective_mcp_servers(&state.mcp_config, state.auth.as_ref());
-    if let Some(server_name) = server {
-        if !mcp_servers.contains_key(server_name) {
-            bail!("unknown MCP server '{server_name}'");
+    if !servers.is_empty() {
+        let wanted_servers = servers.iter().cloned().collect::<HashSet<_>>();
+        for server_name in &wanted_servers {
+            if !mcp_servers.contains_key(server_name) {
+                bail!("unknown MCP server '{server_name}'");
+            }
         }
-        mcp_servers.retain(|name, _| name == server_name);
+        mcp_servers.retain(|name, _| wanted_servers.contains(name));
     }
 
     let mut server_names = mcp_servers.keys().cloned().collect::<Vec<_>>();
@@ -424,6 +482,237 @@ async fn manager_bundle(state: &CodexState, server: Option<&str>) -> Result<Mana
         server_names,
         auth_statuses,
     })
+}
+
+async fn serve_mcp_server(state: &CodexState, servers: &[String]) -> Result<()> {
+    let bundle = manager_bundle_for_servers(state, servers).await?;
+    let index = build_exported_tool_index(&bundle).await?;
+    let bundle = Arc::new(Mutex::new(Some(bundle)));
+    let server = CxporterMcpServer {
+        bundle: Arc::clone(&bundle),
+        index: Arc::new(index),
+    };
+    let service = match server
+        .serve_with_ct(rmcp::transport::stdio(), CancellationToken::new())
+        .await
+    {
+        Ok(service) => service,
+        Err(error) => {
+            shutdown_shared_bundle(bundle).await;
+            return Err(error).context("failed to initialize cxporter MCP stdio server");
+        }
+    };
+    let wait_result = service.waiting().await;
+    shutdown_shared_bundle(bundle).await;
+    wait_result.context("cxporter MCP server task failed")?;
+    Ok(())
+}
+
+async fn shutdown_shared_bundle(bundle: Arc<Mutex<Option<ManagerBundle>>>) {
+    if let Some(bundle) = bundle.lock().await.take() {
+        shutdown(bundle).await;
+    }
+}
+
+async fn build_exported_tool_index(bundle: &ManagerBundle) -> Result<ExportedToolIndex> {
+    let mut tool_infos = bundle.manager.list_all_tools().await;
+    tool_infos.sort_by(|left, right| {
+        let left_name = exported_tool_base_name(
+            &left.server_name,
+            left.connector_name.as_deref(),
+            &left.tool.name,
+        );
+        let right_name = exported_tool_base_name(
+            &right.server_name,
+            right.connector_name.as_deref(),
+            &right.tool.name,
+        );
+        left_name
+            .cmp(&right_name)
+            .then_with(|| left.server_name.cmp(&right.server_name))
+            .then_with(|| left.tool.name.cmp(&right.tool.name))
+    });
+
+    let mut tools = Vec::new();
+    let mut tools_by_name = HashMap::new();
+    let mut routes = HashMap::new();
+    let mut used_names = HashMap::<String, usize>::new();
+
+    for tool_info in tool_infos {
+        let base_name = exported_tool_base_name(
+            &tool_info.server_name,
+            tool_info.connector_name.as_deref(),
+            &tool_info.tool.name,
+        );
+        let exported_name = unique_exported_tool_name(&base_name, &mut used_names);
+        let raw_tool_name = tool_info.tool.name.to_string();
+        let mut exported_tool = tool_info.tool.clone();
+        exported_tool.name = exported_name.clone().into();
+        routes.insert(
+            exported_name.clone(),
+            ExportedToolRoute {
+                server: tool_info.server_name,
+                tool: raw_tool_name,
+            },
+        );
+        tools_by_name.insert(exported_name, exported_tool.clone());
+        tools.push(exported_tool);
+    }
+
+    tools.sort_by(|left, right| left.name.cmp(&right.name));
+
+    Ok(ExportedToolIndex {
+        tools,
+        tools_by_name,
+        routes,
+    })
+}
+
+impl ServerHandler for CxporterMcpServer {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo {
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            server_info: Implementation {
+                name: "cxporter".to_string(),
+                title: Some("cxporter".to_string()),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                description: Some(
+                    "Proxy for Codex-authenticated MCP tools and codex_apps connectors."
+                        .to_string(),
+                ),
+                icons: None,
+                website_url: None,
+            },
+            instructions: Some(
+                "Tools are exposed as <mcp_server>.<connector_or_namespace>.<tool>, for example codex_apps.github.fetch_pr."
+                    .to_string(),
+            ),
+            ..ServerInfo::default()
+        }
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
+        Ok(ListToolsResult::with_all_items(self.index.tools.clone()))
+    }
+
+    fn get_tool(&self, name: &str) -> Option<Tool> {
+        self.index.tools_by_name.get(name).cloned()
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<RmcpCallToolResult, McpError> {
+        let route = self
+            .index
+            .routes
+            .get(request.name.as_ref())
+            .ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("unknown cxporter-exported tool '{}'", request.name),
+                    None,
+                )
+            })?;
+        let arguments = Some(Value::Object(request.arguments.unwrap_or_default()));
+        let meta = request.meta.map(|meta| Value::Object(meta.0));
+        let bundle_guard = self.bundle.lock().await;
+        let bundle = bundle_guard.as_ref().ok_or_else(|| {
+            McpError::internal_error("cxporter MCP server is shutting down", None)
+        })?;
+        let result = bundle
+            .manager
+            .call_tool(&route.server, &route.tool, arguments, meta)
+            .await
+            .map_err(|error| {
+                McpError::internal_error(
+                    format!(
+                        "tool call failed for `{}/{}`: {error:#}",
+                        route.server, route.tool
+                    ),
+                    None,
+                )
+            })?;
+        codex_call_tool_result_to_rmcp(result)
+    }
+}
+
+fn codex_call_tool_result_to_rmcp(
+    result: codex_protocol::mcp::CallToolResult,
+) -> Result<RmcpCallToolResult, McpError> {
+    let value = serde_json::to_value(result).map_err(|error| {
+        McpError::internal_error(
+            format!("failed to serialize Codex tool result: {error}"),
+            None,
+        )
+    })?;
+    serde_json::from_value(value).map_err(|error| {
+        McpError::internal_error(format!("failed to decode Codex tool result: {error}"), None)
+    })
+}
+
+fn exported_tool_base_name(
+    server_name: &str,
+    connector_name: Option<&str>,
+    tool_name: &str,
+) -> String {
+    let server = sanitize_export_component(server_name);
+    let tool = sanitize_export_component(tool_name);
+    if let Some(connector) = connector_name
+        .map(sanitize_export_component)
+        .filter(|connector| !connector.is_empty())
+    {
+        let stripped_tool = strip_export_prefix(&tool, &connector);
+        format!("{server}.{connector}.{stripped_tool}")
+    } else {
+        format!("{server}.{tool}")
+    }
+}
+
+fn unique_exported_tool_name(base_name: &str, used_names: &mut HashMap<String, usize>) -> String {
+    let count = used_names.entry(base_name.to_string()).or_insert(0);
+    *count += 1;
+    if *count == 1 {
+        base_name.to_string()
+    } else {
+        format!("{base_name}.{}", *count)
+    }
+}
+
+fn strip_export_prefix(tool: &str, prefix: &str) -> String {
+    for separator in ["_", "-"] {
+        let prefix = format!("{prefix}{separator}");
+        if let Some(stripped) = tool.strip_prefix(&prefix)
+            && !stripped.is_empty()
+        {
+            return stripped.to_string();
+        }
+    }
+    tool.to_string()
+}
+
+fn sanitize_export_component(value: &str) -> String {
+    let mut result = String::new();
+    let mut previous_was_separator = false;
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            result.push(character.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !previous_was_separator {
+            result.push('_');
+            previous_was_separator = true;
+        }
+    }
+    let result = result.trim_matches('_');
+    if result.is_empty() {
+        "unnamed".to_string()
+    } else {
+        result.to_string()
+    }
 }
 
 async fn list_servers(
@@ -692,4 +981,33 @@ fn print_json<T: Serialize>(value: &T) -> Result<()> {
     serde_json::to_writer_pretty(&mut handle, value)?;
     writeln!(&mut handle)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exported_tool_base_name_groups_codex_apps_by_connector() {
+        assert_eq!(
+            exported_tool_base_name("codex_apps", Some("GitHub"), "github_fetch_pr"),
+            "codex_apps.github.fetch_pr"
+        );
+    }
+
+    #[test]
+    fn exported_tool_base_name_sanitizes_connector_names() {
+        assert_eq!(
+            exported_tool_base_name("codex_apps", Some("Google Drive"), "google drive_search"),
+            "codex_apps.google_drive.search"
+        );
+    }
+
+    #[test]
+    fn exported_tool_base_name_keeps_registered_servers_flat() {
+        assert_eq!(
+            exported_tool_base_name("my-server", None, "lookup.item"),
+            "my_server.lookup_item"
+        );
+    }
 }
