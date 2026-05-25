@@ -115,6 +115,13 @@ command = "cxporter"
 args = ["serve", "--server", "codex_apps"]
 ```
 
+Claude Code registration:
+
+```bash
+claude mcp add --transport stdio cxporter -- cxporter serve --server codex_apps
+claude mcp get cxporter
+```
+
 ## Error Handling
 
 - `INVALID_ARGUMENT`: the JSON arguments do not match the connector schema.

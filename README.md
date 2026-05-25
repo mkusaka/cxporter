@@ -79,6 +79,24 @@ command = "cxporter"
 args = ["serve", "--server", "codex_apps"]
 ```
 
+For Claude Code, add it as a local stdio MCP server:
+
+```bash
+claude mcp add --transport stdio cxporter -- cxporter serve --server codex_apps
+```
+
+If `cxporter` is not on Claude Code's `PATH`, use the absolute path:
+
+```bash
+claude mcp add --transport stdio cxporter -- "$(which cxporter)" serve --server codex_apps
+```
+
+Verify it from Claude Code with:
+
+```bash
+claude mcp get cxporter
+```
+
 For example, `github_fetch_pr` currently expects `repo_full_name` and
 `pr_number`:
 
