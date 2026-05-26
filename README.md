@@ -28,9 +28,12 @@ npx skills add . --skill cxporter-mcp -y
 ```bash
 cargo run -- list
 cargo run -- list --server codex_apps
+cargo run -- list --server codex_apps --connector atlassian --name-contains confluence
 cargo run -- apps
 cargo run -- schema codex_apps github_fetch_pr
 cargo run -- call codex_apps <tool_name> '{"query":"hello"}'
+cargo run -- call codex_apps <tool_name> --args-file args.json
+cargo run -- batch --server codex_apps --input calls.jsonl --concurrency 4 --retry 3
 cargo run -- serve --server codex_apps
 ```
 
@@ -48,10 +51,19 @@ launch Codex hidden helper modes.
 ## Commands
 
 - `list`: lists configured MCP servers and tools, including synthesized
-  `codex_apps` when Codex enables it for the current auth.
+  `codex_apps` when Codex enables it for the current auth. Use `--connector`,
+  `--tool`, and `--name-contains` to keep large connector surfaces readable.
+  JSON output includes raw tool definitions plus `toolAliases`; pass
+  `--format text` for a compact table.
 - `call`: calls a tool directly through Codex's MCP connection manager.
   `call` checks required schema properties locally before sending; pass
-  `--no-preflight` to bypass that check and send the raw JSON.
+  `--no-preflight` to bypass that check and send the raw JSON. Pass JSON as
+  the positional argument, `--args-file path`, or `--args-file -` for stdin.
+  `--retry` and `--retry-delay-ms` opt in to retries for transient
+  transport/startup/tool-call errors.
+- `batch`: reads JSONL tool calls and writes one JSONL result per input line.
+  Each line is `{ "tool": "...", "arguments": {...} }`. Processing continues
+  after per-line failures, and the command exits non-zero if any line fails.
 - `schema`: prints the JSON input schema for one tool.
 - `resource`: reads an MCP resource directly through Codex's MCP connection
   manager.
@@ -60,12 +72,14 @@ launch Codex hidden helper modes.
 - `serve`: runs a stdio MCP server that exports the currently available
   Codex-authenticated MCP tools as its own tools.
 
-`serve` loads the downstream tools once at startup and exposes each tool with a
-namespaced MCP tool name. Internal apps/connectors are grouped under the
-`codex_apps` server name, so `github_fetch_pr` is exported as
-`codex_apps.github.fetch_pr`. Registered MCP servers are exported as
-`<server>.<tool>`. Use `--server` one or more times to limit the exported
-surface:
+Direct `call` and `schema` accept both the raw downstream tool name and the
+cxporter-exported alias. `serve` loads the downstream tools once at startup and
+exposes each tool with a namespaced MCP tool name. Internal apps/connectors are
+grouped under the `codex_apps` server name, so raw `github_fetch_pr` is exported
+as `codex_apps.github.fetch_pr`. Registered MCP servers are exported as
+`<server>.<tool>`. Use `list --server <server> --name-contains <text>` to see
+the raw/exported mapping, and use `--server` one or more times to limit the
+served surface:
 
 ```bash
 cxporter serve --server codex_apps
@@ -102,4 +116,23 @@ For example, `github_fetch_pr` currently expects `repo_full_name` and
 
 ```bash
 cargo run -- call codex_apps github_fetch_pr '{"repo_full_name":"openai/codex","pr_number":123}'
+```
+
+The same call can read arguments from a file:
+
+```bash
+cargo run -- call codex_apps github_fetch_pr --args-file args.json
+```
+
+Batch input is newline-delimited JSON:
+
+```jsonl
+{"tool":"codex_apps.github.fetch_pr","arguments":{"repo_full_name":"openai/codex","pr_number":123}}
+{"tool":"github_fetch_pr","arguments":{"repo_full_name":"openai/codex","pr_number":124}}
+```
+
+Run it with bounded concurrency and opt-in retries:
+
+```bash
+cargo run -- batch --server codex_apps --input calls.jsonl --concurrency 4 --retry 3 --retry-delay-ms 500
 ```

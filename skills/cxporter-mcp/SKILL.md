@@ -64,6 +64,13 @@ Inspect one server's tools:
 skills/cxporter-mcp/scripts/cxporter.sh list --server codex_apps
 ```
 
+Filter large connector tool lists:
+
+```bash
+skills/cxporter-mcp/scripts/cxporter.sh list --server codex_apps --connector atlassian --name-contains confluence
+skills/cxporter-mcp/scripts/cxporter.sh list --server codex_apps --tool updateconfluencepage --format text
+```
+
 Show one tool's input schema:
 
 ```bash
@@ -74,6 +81,13 @@ Call a tool:
 
 ```bash
 skills/cxporter-mcp/scripts/cxporter.sh call codex_apps github_fetch_pr '{"repo_full_name":"openai/codex","pr_number":123}'
+```
+
+Call a tool with arguments from a file, or stdin:
+
+```bash
+skills/cxporter-mcp/scripts/cxporter.sh call codex_apps github_fetch_pr --args-file args.json
+printf '%s\n' '{"repo_full_name":"openai/codex","pr_number":123}' | skills/cxporter-mcp/scripts/cxporter.sh call codex_apps github_fetch_pr --args-file -
 ```
 
 Bypass local required-property preflight only when the remote connector must see
@@ -95,16 +109,35 @@ Read a resource:
 skills/cxporter-mcp/scripts/cxporter.sh resource <server> <uri>
 ```
 
+Run multiple tool calls from JSONL:
+
+```bash
+skills/cxporter-mcp/scripts/cxporter.sh batch --server codex_apps --input calls.jsonl --concurrency 4 --retry 3
+```
+
+Each JSONL input line is:
+
+```json
+{"tool":"codex_apps.github.fetch_pr","arguments":{"repo_full_name":"openai/codex","pr_number":123}}
+```
+
+`batch` writes JSONL results with `line`, `server`, `tool`, `success`,
+`attempts`, and either `result` or `error`. It continues after per-line
+failures and exits non-zero if any line fails.
+
 Run as an MCP server:
 
 ```bash
 skills/cxporter-mcp/scripts/cxporter.sh serve --server codex_apps
 ```
 
-When serving, cxporter loads downstream tools at startup and exposes them as MCP
-tools named `<server>.<connector>.<tool>` for apps, or `<server>.<tool>` for
-ordinary registered MCP servers. For example, raw `codex_apps` tool
-`github_fetch_pr` is exported as `codex_apps.github.fetch_pr`.
+Direct `call` and `schema` accept both the raw downstream tool name and the
+cxporter-exported alias. When serving, cxporter loads downstream tools at
+startup and exposes them as MCP tools named `<server>.<connector>.<tool>` for
+apps, or `<server>.<tool>` for ordinary registered MCP servers. For example,
+raw `codex_apps` tool `github_fetch_pr` is exported as
+`codex_apps.github.fetch_pr`. Use `list --server <server> --name-contains
+<text>` to inspect raw and exported names.
 
 Register an installed cxporter binary in another MCP client with stdio
 transport:
@@ -134,6 +167,8 @@ claude mcp get cxporter
   reached, but the remote service or workspace policy rejected the request.
 - `unknown MCP server`: list servers and verify the server is registered or
   that `codex_apps` is enabled for the current Codex auth/config.
+- Batch output with `success:false`: inspect the `line`, `tool`, and `error`
+  fields. Other lines may still have succeeded.
 
 ## Guardrails
 
@@ -144,3 +179,5 @@ claude mcp get cxporter
 - Prefer `schema` over guessing argument names. Connector schemas can differ
   from public API names; for example `github_fetch_pr` expects
   `repo_full_name` and `pr_number`.
+- Use `--retry` only for operations that are safe to repeat or where duplicate
+  side effects are acceptable. The default is no retry.

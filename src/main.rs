@@ -2,10 +2,16 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
+use std::fs::File;
+use std::future::Future;
+use std::io::BufRead;
+use std::io::BufReader;
+use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -37,6 +43,7 @@ use codex_login::CodexAuth;
 use codex_mcp::McpConfig;
 use codex_mcp::McpConnectionManager;
 use codex_mcp::McpRuntimeContext;
+use codex_mcp::ToolInfo;
 use codex_mcp::codex_apps_tools_cache_key;
 use codex_mcp::compute_auth_statuses;
 use codex_mcp::effective_mcp_servers;
@@ -65,9 +72,13 @@ use rmcp::model::Tool;
 use rmcp::model::UrlElicitationCapability;
 use rmcp::service::RequestContext;
 use rmcp::service::RoleServer;
+use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::Mutex;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
+use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Parser)]
@@ -88,6 +99,26 @@ enum Command {
         #[arg(long, help = "Filter to one MCP server.")]
         server: Option<String>,
 
+        #[arg(long, help = "Filter codex_apps tools by connector id or name.")]
+        connector: Option<String>,
+
+        #[arg(long, help = "Filter by raw, callable, or exported tool name.")]
+        tool: Option<String>,
+
+        #[arg(
+            long,
+            help = "Case-insensitive substring filter across tool and connector names."
+        )]
+        name_contains: Option<String>,
+
+        #[arg(
+            long,
+            value_enum,
+            default_value = "json",
+            help = "Print JSON metadata or a compact human-readable table."
+        )]
+        format: ListFormat,
+
         #[arg(
             long,
             value_enum,
@@ -103,15 +134,60 @@ enum Command {
             help = "Skip local required-property checks and send arguments directly."
         )]
         no_preflight: bool,
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Read JSON tool arguments from a file, or '-' for stdin."
+        )]
+        args_file: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "Retry failed transport/startup/tool-call attempts."
+        )]
+        retry: u32,
+        #[arg(
+            long,
+            default_value_t = 250,
+            help = "Initial retry delay in milliseconds."
+        )]
+        retry_delay_ms: u64,
         #[arg(help = "MCP server name, for example codex_apps.")]
         server: String,
-        #[arg(help = "Tool name.")]
+        #[arg(help = "Raw tool name, or cxporter exported tool alias.")]
         tool: String,
+        #[arg(help = "JSON object passed as MCP tool arguments.")]
+        arguments_json: Option<String>,
+    },
+    #[command(about = "Run many MCP tool calls from a JSONL input stream.")]
+    Batch {
+        #[arg(long, help = "MCP server name, for example codex_apps.")]
+        server: String,
         #[arg(
-            default_value = "{}",
-            help = "JSON object passed as MCP tool arguments."
+            long,
+            default_value = "-",
+            help = "JSONL input file, or '-' for stdin."
         )]
-        arguments_json: String,
+        input: String,
+        #[arg(long, default_value_t = 1, help = "Maximum concurrent tool calls.")]
+        concurrency: usize,
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "Retry failed transport/startup/tool-call attempts."
+        )]
+        retry: u32,
+        #[arg(
+            long,
+            default_value_t = 250,
+            help = "Initial retry delay in milliseconds."
+        )]
+        retry_delay_ms: u64,
+        #[arg(
+            long,
+            help = "Skip local required-property checks and send arguments directly."
+        )]
+        no_preflight: bool,
     },
     #[command(about = "Show the JSON input schema for a tool.")]
     Schema {
@@ -147,6 +223,12 @@ enum Command {
 enum Detail {
     Full,
     Tools,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum ListFormat {
+    Json,
+    Text,
 }
 
 struct CodexState {
@@ -196,9 +278,41 @@ struct ManagerBundle {
 struct ServerStatus {
     name: String,
     tools: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    tool_aliases: BTreeMap<String, ToolAlias>,
     resources: Vec<Value>,
     resource_templates: Vec<Value>,
     auth_status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolAlias {
+    exported_name: String,
+    callable_name: String,
+    connector_id: Option<String>,
+    connector_name: Option<String>,
+}
+
+#[derive(Debug)]
+struct ListFilters {
+    connector: Option<String>,
+    tool: Option<String>,
+    name_contains: Option<String>,
+}
+
+#[derive(Debug)]
+struct ListOutput {
+    statuses: Vec<ServerStatus>,
+    rows: Vec<ListRow>,
+}
+
+#[derive(Clone, Debug)]
+struct ListRow {
+    server: String,
+    raw_tool: String,
+    exported_tool: String,
+    connector: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -226,6 +340,65 @@ struct ExportedToolIndex {
     routes: HashMap<String, ExportedToolRoute>,
 }
 
+#[derive(Clone, Debug)]
+struct ToolCatalog {
+    entries: Vec<ToolCatalogEntry>,
+}
+
+#[derive(Clone, Debug)]
+struct ToolCatalogEntry {
+    server: String,
+    raw_tool: String,
+    exported_tool: String,
+    callable_name: String,
+    connector_id: Option<String>,
+    connector_name: Option<String>,
+    tool: Tool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RetryOptions {
+    retry: u32,
+    retry_delay_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchInput {
+    tool: String,
+    #[serde(default = "default_arguments")]
+    arguments: Value,
+}
+
+#[derive(Debug)]
+struct BatchItem {
+    line: usize,
+    request: Result<BatchInput, String>,
+}
+
+#[derive(Clone, Debug)]
+struct ResolvedBatchCall {
+    line: usize,
+    requested_tool: String,
+    raw_tool: String,
+    arguments: Value,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchOutputLine {
+    line: usize,
+    server: String,
+    tool: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_tool: Option<String>,
+    success: bool,
+    attempts: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<codex_protocol::mcp::CallToolResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
 struct CxporterMcpServer {
     bundle: Arc<Mutex<Option<ManagerBundle>>>,
     index: Arc<ExportedToolIndex>,
@@ -244,19 +417,74 @@ async fn run() -> Result<()> {
     let state = load_state(&cli.config_overrides).await?;
 
     match cli.command {
-        Command::List { server, detail } => {
-            let statuses = list_servers(&state, server.as_deref(), detail).await?;
-            print_json(&statuses)?;
+        Command::List {
+            server,
+            connector,
+            tool,
+            name_contains,
+            format,
+            detail,
+        } => {
+            let filters = ListFilters {
+                connector,
+                tool,
+                name_contains,
+            };
+            let output = list_servers(&state, server.as_deref(), detail, &filters).await?;
+            match format {
+                ListFormat::Json => print_json(&output.statuses)?,
+                ListFormat::Text => print_list_text(&output.rows)?,
+            }
         }
         Command::Call {
             no_preflight,
+            args_file,
+            retry,
+            retry_delay_ms,
             server,
             tool,
             arguments_json,
         } => {
-            let arguments = parse_arguments_json(&arguments_json)?;
-            let result = call_tool(&state, &server, &tool, arguments, !no_preflight).await?;
+            let arguments = read_arguments(arguments_json.as_deref(), args_file.as_deref())?;
+            let retry_options = RetryOptions {
+                retry,
+                retry_delay_ms,
+            };
+            let result = call_tool(
+                &state,
+                &server,
+                &tool,
+                arguments,
+                !no_preflight,
+                retry_options,
+            )
+            .await?;
             print_json(&result)?;
+        }
+        Command::Batch {
+            server,
+            input,
+            concurrency,
+            retry,
+            retry_delay_ms,
+            no_preflight,
+        } => {
+            let retry_options = RetryOptions {
+                retry,
+                retry_delay_ms,
+            };
+            let failure_count = run_batch(
+                &state,
+                &server,
+                &input,
+                concurrency,
+                !no_preflight,
+                retry_options,
+            )
+            .await?;
+            if failure_count > 0 {
+                bail!("batch completed with {failure_count} failed line(s)");
+            }
         }
         Command::Schema { server, tool } => {
             let schema = tool_schema(&state, &server, &tool).await?;
@@ -515,7 +743,40 @@ async fn shutdown_shared_bundle(bundle: Arc<Mutex<Option<ManagerBundle>>>) {
 }
 
 async fn build_exported_tool_index(bundle: &ManagerBundle) -> Result<ExportedToolIndex> {
-    let mut tool_infos = bundle.manager.list_all_tools().await;
+    let catalog = build_tool_catalog(bundle).await;
+
+    let mut tools = Vec::new();
+    let mut tools_by_name = HashMap::new();
+    let mut routes = HashMap::new();
+
+    for entry in catalog.entries {
+        let mut exported_tool = entry.tool.clone();
+        exported_tool.name = entry.exported_tool.clone().into();
+        routes.insert(
+            entry.exported_tool.clone(),
+            ExportedToolRoute {
+                server: entry.server,
+                tool: entry.raw_tool,
+            },
+        );
+        tools_by_name.insert(entry.exported_tool, exported_tool.clone());
+        tools.push(exported_tool);
+    }
+
+    tools.sort_by(|left, right| left.name.cmp(&right.name));
+
+    Ok(ExportedToolIndex {
+        tools,
+        tools_by_name,
+        routes,
+    })
+}
+
+async fn build_tool_catalog(bundle: &ManagerBundle) -> ToolCatalog {
+    tool_catalog_from_infos(bundle.manager.list_all_tools().await)
+}
+
+fn tool_catalog_from_infos(mut tool_infos: Vec<ToolInfo>) -> ToolCatalog {
     tool_infos.sort_by(|left, right| {
         let left_name = exported_tool_base_name(
             &left.server_name,
@@ -533,39 +794,28 @@ async fn build_exported_tool_index(bundle: &ManagerBundle) -> Result<ExportedToo
             .then_with(|| left.tool.name.cmp(&right.tool.name))
     });
 
-    let mut tools = Vec::new();
-    let mut tools_by_name = HashMap::new();
-    let mut routes = HashMap::new();
     let mut used_names = HashMap::<String, usize>::new();
-
-    for tool_info in tool_infos {
-        let base_name = exported_tool_base_name(
-            &tool_info.server_name,
-            tool_info.connector_name.as_deref(),
-            &tool_info.tool.name,
-        );
-        let exported_name = unique_exported_tool_name(&base_name, &mut used_names);
-        let raw_tool_name = tool_info.tool.name.to_string();
-        let mut exported_tool = tool_info.tool.clone();
-        exported_tool.name = exported_name.clone().into();
-        routes.insert(
-            exported_name.clone(),
-            ExportedToolRoute {
+    let entries = tool_infos
+        .into_iter()
+        .map(|tool_info| {
+            let base_name = exported_tool_base_name(
+                &tool_info.server_name,
+                tool_info.connector_name.as_deref(),
+                &tool_info.tool.name,
+            );
+            let exported_tool = unique_exported_tool_name(&base_name, &mut used_names);
+            ToolCatalogEntry {
                 server: tool_info.server_name,
-                tool: raw_tool_name,
-            },
-        );
-        tools_by_name.insert(exported_name, exported_tool.clone());
-        tools.push(exported_tool);
-    }
-
-    tools.sort_by(|left, right| left.name.cmp(&right.name));
-
-    Ok(ExportedToolIndex {
-        tools,
-        tools_by_name,
-        routes,
-    })
+                raw_tool: tool_info.tool.name.to_string(),
+                exported_tool,
+                callable_name: tool_info.callable_name,
+                connector_id: tool_info.connector_id,
+                connector_name: tool_info.connector_name,
+                tool: tool_info.tool,
+            }
+        })
+        .collect();
+    ToolCatalog { entries }
 }
 
 impl ServerHandler for CxporterMcpServer {
@@ -719,16 +969,44 @@ async fn list_servers(
     state: &CodexState,
     server: Option<&str>,
     detail: Detail,
-) -> Result<Vec<ServerStatus>> {
+    filters: &ListFilters,
+) -> Result<ListOutput> {
     let bundle = manager_bundle(state, server).await?;
     let mut tools_by_server: HashMap<String, BTreeMap<String, Value>> = HashMap::new();
-    for tool_info in bundle.manager.list_all_tools().await {
-        let tool_name = tool_info.tool.name.to_string();
-        let tool_json = serde_json::to_value(tool_info.tool)?;
+    let mut aliases_by_server: HashMap<String, BTreeMap<String, ToolAlias>> = HashMap::new();
+    let mut rows = Vec::new();
+    let catalog = build_tool_catalog(&bundle).await;
+    for entry in catalog
+        .entries
+        .iter()
+        .filter(|entry| list_filters_match(entry, filters))
+    {
+        let tool_json = serde_json::to_value(entry.tool.clone())?;
         tools_by_server
-            .entry(tool_info.server_name)
+            .entry(entry.server.clone())
             .or_default()
-            .insert(tool_name, tool_json);
+            .insert(entry.raw_tool.clone(), tool_json);
+        aliases_by_server
+            .entry(entry.server.clone())
+            .or_default()
+            .insert(
+                entry.raw_tool.clone(),
+                ToolAlias {
+                    exported_name: entry.exported_tool.clone(),
+                    callable_name: entry.callable_name.clone(),
+                    connector_id: entry.connector_id.clone(),
+                    connector_name: entry.connector_name.clone(),
+                },
+            );
+        rows.push(ListRow {
+            server: entry.server.clone(),
+            raw_tool: entry.raw_tool.clone(),
+            exported_tool: entry.exported_tool.clone(),
+            connector: entry
+                .connector_name
+                .clone()
+                .or_else(|| entry.connector_id.clone()),
+        });
     }
 
     let (resources_by_server, templates_by_server) = if detail == Detail::Full {
@@ -746,6 +1024,7 @@ async fn list_servers(
         .map(|name| ServerStatus {
             name: name.clone(),
             tools: tools_by_server.remove(name).unwrap_or_default(),
+            tool_aliases: aliases_by_server.remove(name).unwrap_or_default(),
             resources: values_to_json(resources_by_server.get(name)),
             resource_templates: values_to_json(templates_by_server.get(name)),
             auth_status: auth_status_to_wire(
@@ -758,7 +1037,7 @@ async fn list_servers(
         .collect::<Vec<_>>();
 
     shutdown(bundle).await;
-    Ok(statuses)
+    Ok(ListOutput { statuses, rows })
 }
 
 async fn call_tool(
@@ -767,16 +1046,37 @@ async fn call_tool(
     tool: &str,
     arguments: Value,
     preflight: bool,
+    retry_options: RetryOptions,
+) -> Result<codex_protocol::mcp::CallToolResult> {
+    let (result, _) = retry_operation(retry_options, || {
+        let arguments = arguments.clone();
+        async move { call_tool_once(state, server, tool, arguments, preflight).await }
+    })
+    .await;
+    result
+}
+
+async fn call_tool_once(
+    state: &CodexState,
+    server: &str,
+    tool: &str,
+    arguments: Value,
+    preflight: bool,
 ) -> Result<codex_protocol::mcp::CallToolResult> {
     let bundle = manager_bundle(state, Some(server)).await?;
-    if preflight {
-        let schema = tool_schema_from_bundle(&bundle, server, tool).await?;
-        validate_required_arguments(server, tool, &arguments, &schema)?;
+    let result = async {
+        let catalog = build_tool_catalog(&bundle).await;
+        let entry = resolve_tool_entry(&catalog, server, tool)?;
+        if preflight {
+            let schema = tool_schema_value(&entry.tool)?;
+            validate_required_arguments(server, &entry.raw_tool, &arguments, &schema)?;
+        }
+        bundle
+            .manager
+            .call_tool(server, &entry.raw_tool, Some(arguments), /*meta*/ None)
+            .await
     }
-    let result = bundle
-        .manager
-        .call_tool(server, tool, Some(arguments), /*meta*/ None)
-        .await;
+    .await;
     shutdown(bundle).await;
     result
 }
@@ -813,17 +1113,86 @@ async fn tool_schema_from_bundle(
     server: &str,
     tool: &str,
 ) -> Result<Value> {
-    let mut schema = None;
+    let catalog = build_tool_catalog(bundle).await;
+    let entry = resolve_tool_entry(&catalog, server, tool)?;
+    tool_schema_value(&entry.tool)
+}
 
-    for tool_info in bundle.manager.list_all_tools().await {
-        if tool_info.server_name == server && tool_info.tool.name == tool {
-            let tool_json = serde_json::to_value(tool_info.tool)?;
-            schema = tool_json.get("inputSchema").cloned();
-            break;
+fn tool_schema_value(tool: &Tool) -> Result<Value> {
+    let tool_json = serde_json::to_value(tool)?;
+    tool_json
+        .get("inputSchema")
+        .cloned()
+        .ok_or_else(|| anyhow!("tool '{}' does not expose an inputSchema", tool.name))
+}
+
+fn resolve_tool_entry<'a>(
+    catalog: &'a ToolCatalog,
+    server: &str,
+    tool: &str,
+) -> Result<&'a ToolCatalogEntry> {
+    let matches = catalog
+        .entries
+        .iter()
+        .filter(|entry| {
+            entry.server == server
+                && (entry.raw_tool == tool
+                    || entry.exported_tool == tool
+                    || entry.callable_name == tool)
+        })
+        .collect::<Vec<_>>();
+
+    match matches.as_slice() {
+        [entry] => Ok(*entry),
+        [] => bail!(
+            "unknown tool '{tool}' on MCP server '{server}'; use `cxporter list --server {server} --name-contains {tool}` to inspect raw and exported names"
+        ),
+        _ => {
+            let names = matches
+                .iter()
+                .map(|entry| format!("raw={} exported={}", entry.raw_tool, entry.exported_tool))
+                .collect::<Vec<_>>()
+                .join("; ");
+            bail!("ambiguous tool alias '{tool}' on MCP server '{server}': {names}")
         }
     }
+}
 
-    schema.ok_or_else(|| anyhow!("unknown tool '{tool}' on MCP server '{server}'"))
+fn list_filters_match(entry: &ToolCatalogEntry, filters: &ListFilters) -> bool {
+    if let Some(connector) = filters.connector.as_deref()
+        && !contains_ignore_case(entry.connector_id.as_deref(), connector)
+        && !contains_ignore_case(entry.connector_name.as_deref(), connector)
+    {
+        return false;
+    }
+
+    if let Some(tool) = filters.tool.as_deref()
+        && entry.raw_tool != tool
+        && entry.exported_tool != tool
+        && entry.callable_name != tool
+    {
+        return false;
+    }
+
+    if let Some(needle) = filters.name_contains.as_deref()
+        && !contains_ignore_case(Some(&entry.server), needle)
+        && !contains_ignore_case(Some(&entry.raw_tool), needle)
+        && !contains_ignore_case(Some(&entry.exported_tool), needle)
+        && !contains_ignore_case(Some(&entry.callable_name), needle)
+        && !contains_ignore_case(entry.connector_id.as_deref(), needle)
+        && !contains_ignore_case(entry.connector_name.as_deref(), needle)
+    {
+        return false;
+    }
+
+    true
+}
+
+fn contains_ignore_case(haystack: Option<&str>, needle: &str) -> bool {
+    let Some(haystack) = haystack else {
+        return false;
+    };
+    haystack.to_lowercase().contains(&needle.to_lowercase())
 }
 
 fn validate_required_arguments(
@@ -949,6 +1318,314 @@ fn parse_arguments_json(arguments_json: &str) -> Result<Value> {
         bail!("tool arguments must be a JSON object");
     }
     Ok(value)
+}
+
+fn read_arguments(arguments_json: Option<&str>, args_file: Option<&str>) -> Result<Value> {
+    match (arguments_json, args_file) {
+        (Some(_), Some(_)) => bail!("pass either ARGUMENTS_JSON or --args-file, not both"),
+        (Some(arguments_json), None) => parse_arguments_json(arguments_json),
+        (None, Some("-")) => {
+            let mut input = String::new();
+            std::io::stdin()
+                .read_to_string(&mut input)
+                .context("failed to read tool arguments from stdin")?;
+            parse_arguments_json(&input)
+        }
+        (None, Some(path)) => {
+            let input = std::fs::read_to_string(path)
+                .with_context(|| format!("failed to read tool arguments from {path}"))?;
+            parse_arguments_json(&input)
+        }
+        (None, None) => parse_arguments_json("{}"),
+    }
+}
+
+fn default_arguments() -> Value {
+    Value::Object(Default::default())
+}
+
+async fn run_batch(
+    state: &CodexState,
+    server: &str,
+    input: &str,
+    concurrency: usize,
+    preflight: bool,
+    retry_options: RetryOptions,
+) -> Result<usize> {
+    if concurrency == 0 {
+        bail!("--concurrency must be greater than 0");
+    }
+
+    let items = read_batch_items(input)?;
+    let (bundle, _) = retry_operation(retry_options, || async {
+        manager_bundle(state, Some(server)).await
+    })
+    .await;
+    let bundle = bundle?;
+    let bundle = Arc::new(bundle);
+    let catalog = build_tool_catalog(&bundle).await;
+    let mut outputs = Vec::<BatchOutputLine>::new();
+    let mut calls = Vec::<ResolvedBatchCall>::new();
+
+    for item in items {
+        match item.request {
+            Ok(request) => {
+                let requested_tool = request.tool.clone();
+                match resolve_batch_call(&catalog, server, item.line, request, preflight) {
+                    Ok(call) => calls.push(call),
+                    Err(error) => outputs.push(BatchOutputLine {
+                        line: item.line,
+                        server: server.to_string(),
+                        tool: requested_tool,
+                        raw_tool: None,
+                        success: false,
+                        attempts: 0,
+                        result: None,
+                        error: Some(format!("{error:#}")),
+                    }),
+                }
+            }
+            Err(error) => outputs.push(BatchOutputLine {
+                line: item.line,
+                server: server.to_string(),
+                tool: "<invalid>".to_string(),
+                raw_tool: None,
+                success: false,
+                attempts: 0,
+                result: None,
+                error: Some(error),
+            }),
+        }
+    }
+
+    let semaphore = Arc::new(Semaphore::new(concurrency));
+    let mut tasks = JoinSet::new();
+    for call in calls {
+        let bundle = Arc::clone(&bundle);
+        let semaphore = Arc::clone(&semaphore);
+        let server = server.to_string();
+        tasks.spawn(async move {
+            let _permit = semaphore
+                .acquire_owned()
+                .await
+                .map_err(|error| anyhow!("batch semaphore closed: {error}"))?;
+            execute_batch_call(bundle, server, call, retry_options).await
+        });
+    }
+
+    while let Some(join_result) = tasks.join_next().await {
+        match join_result {
+            Ok(Ok(output)) => outputs.push(output),
+            Ok(Err(error)) => outputs.push(BatchOutputLine {
+                line: 0,
+                server: server.to_string(),
+                tool: "<internal>".to_string(),
+                raw_tool: None,
+                success: false,
+                attempts: 0,
+                result: None,
+                error: Some(format!("{error:#}")),
+            }),
+            Err(error) => outputs.push(BatchOutputLine {
+                line: 0,
+                server: server.to_string(),
+                tool: "<internal>".to_string(),
+                raw_tool: None,
+                success: false,
+                attempts: 0,
+                result: None,
+                error: Some(format!("batch task failed: {error}")),
+            }),
+        }
+    }
+
+    outputs.sort_by_key(|output| output.line);
+    let failure_count = outputs.iter().filter(|output| !output.success).count();
+
+    drop(catalog);
+    match Arc::try_unwrap(bundle) {
+        Ok(bundle) => shutdown(bundle).await,
+        Err(_) => bail!("internal error: batch MCP bundle still in use"),
+    }
+
+    print_jsonl(&outputs)?;
+    Ok(failure_count)
+}
+
+fn read_batch_items(input: &str) -> Result<Vec<BatchItem>> {
+    let reader: Box<dyn BufRead> = if input == "-" {
+        Box::new(BufReader::new(std::io::stdin()))
+    } else {
+        let file =
+            File::open(input).with_context(|| format!("failed to open batch input {input}"))?;
+        Box::new(BufReader::new(file))
+    };
+
+    let mut items = Vec::new();
+    for (index, line) in reader.lines().enumerate() {
+        let line_number = index + 1;
+        let line =
+            line.with_context(|| format!("failed to read batch input line {line_number}"))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        items.push(BatchItem {
+            line: line_number,
+            request: parse_batch_input_line(&line),
+        });
+    }
+    Ok(items)
+}
+
+fn parse_batch_input_line(line: &str) -> Result<BatchInput, String> {
+    let input = serde_json::from_str::<BatchInput>(line)
+        .map_err(|error| format!("invalid JSONL batch line: {error}"))?;
+    if !input.arguments.is_object() {
+        return Err("batch arguments must be a JSON object".to_string());
+    }
+    Ok(input)
+}
+
+fn resolve_batch_call(
+    catalog: &ToolCatalog,
+    server: &str,
+    line: usize,
+    request: BatchInput,
+    preflight: bool,
+) -> Result<ResolvedBatchCall> {
+    let entry = resolve_tool_entry(catalog, server, &request.tool)?;
+    if preflight {
+        let schema = tool_schema_value(&entry.tool)?;
+        validate_required_arguments(server, &entry.raw_tool, &request.arguments, &schema)?;
+    }
+    Ok(ResolvedBatchCall {
+        line,
+        requested_tool: request.tool,
+        raw_tool: entry.raw_tool.clone(),
+        arguments: request.arguments,
+    })
+}
+
+async fn execute_batch_call(
+    bundle: Arc<ManagerBundle>,
+    server: String,
+    call: ResolvedBatchCall,
+    retry_options: RetryOptions,
+) -> Result<BatchOutputLine> {
+    let raw_tool = call.raw_tool.clone();
+    let arguments = call.arguments.clone();
+    let (result, attempts) = retry_operation(retry_options, || {
+        let bundle = Arc::clone(&bundle);
+        let server = server.clone();
+        let raw_tool = raw_tool.clone();
+        let arguments = arguments.clone();
+        async move {
+            bundle
+                .manager
+                .call_tool(&server, &raw_tool, Some(arguments), /*meta*/ None)
+                .await
+        }
+    })
+    .await;
+
+    match result {
+        Ok(result) => {
+            let tool_returned_error = result.is_error.unwrap_or(false);
+            Ok(BatchOutputLine {
+                line: call.line,
+                server,
+                tool: call.requested_tool,
+                raw_tool: Some(call.raw_tool),
+                success: !tool_returned_error,
+                attempts,
+                result: Some(result),
+                error: tool_returned_error.then(|| "tool returned isError=true".to_string()),
+            })
+        }
+        Err(error) => Ok(BatchOutputLine {
+            line: call.line,
+            server,
+            tool: call.requested_tool,
+            raw_tool: Some(call.raw_tool),
+            success: false,
+            attempts,
+            result: None,
+            error: Some(format!(
+                "tool call failed for `{}` on line {}: {error:#}",
+                raw_tool, call.line
+            )),
+        }),
+    }
+}
+
+async fn retry_operation<T, Fut, F>(
+    retry_options: RetryOptions,
+    mut operation: F,
+) -> (Result<T>, u32)
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T>>,
+{
+    let max_attempts = retry_options.retry.saturating_add(1);
+    let mut attempt = 1;
+    loop {
+        match operation().await {
+            Ok(value) => return (Ok(value), attempt),
+            Err(error) => {
+                if attempt >= max_attempts || !is_retryable_error(&error) {
+                    return (Err(error), attempt);
+                }
+                let delay = retry_delay(retry_options.retry_delay_ms, attempt);
+                if !delay.is_zero() {
+                    sleep(delay).await;
+                }
+                attempt += 1;
+            }
+        }
+    }
+}
+
+fn is_retryable_error(error: &anyhow::Error) -> bool {
+    let message = format!("{error:#}");
+    !message.contains("unknown MCP server")
+        && !message.contains("unknown tool")
+        && !message.contains("ambiguous tool alias")
+        && !message.contains("arguments do not satisfy")
+        && !message.contains("tool arguments must be a JSON object")
+}
+
+fn retry_delay(base_delay_ms: u64, attempt: u32) -> Duration {
+    let multiplier = 1_u64
+        .checked_shl(attempt.saturating_sub(1))
+        .unwrap_or(u64::MAX);
+    Duration::from_millis(base_delay_ms.saturating_mul(multiplier))
+}
+
+fn print_jsonl<T: Serialize>(values: &[T]) -> Result<()> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    for value in values {
+        serde_json::to_writer(&mut handle, value)?;
+        writeln!(&mut handle)?;
+    }
+    Ok(())
+}
+
+fn print_list_text(rows: &[ListRow]) -> Result<()> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    writeln!(&mut handle, "SERVER\tCONNECTOR\tRAW TOOL\tEXPORTED TOOL")?;
+    for row in rows {
+        writeln!(
+            &mut handle,
+            "{}\t{}\t{}\t{}",
+            row.server,
+            row.connector.as_deref().unwrap_or("-"),
+            row.raw_tool,
+            row.exported_tool
+        )?;
+    }
+    Ok(())
 }
 
 fn values_to_json<T: Serialize>(values: Option<&Vec<T>>) -> Vec<Value> {
