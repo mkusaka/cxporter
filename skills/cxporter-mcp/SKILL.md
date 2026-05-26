@@ -68,7 +68,7 @@ Filter large connector tool lists:
 
 ```bash
 skills/cxporter-mcp/scripts/cxporter.sh list --server codex_apps --connector atlassian --name-contains confluence
-skills/cxporter-mcp/scripts/cxporter.sh list --server codex_apps --tool updateconfluencepage --format text
+skills/cxporter-mcp/scripts/cxporter.sh list --server codex_apps --name-contains updateconfluencepage --format text
 ```
 
 Show one tool's input schema:
@@ -112,7 +112,7 @@ skills/cxporter-mcp/scripts/cxporter.sh resource <server> <uri>
 Run multiple tool calls from JSONL:
 
 ```bash
-skills/cxporter-mcp/scripts/cxporter.sh batch --server codex_apps --input calls.jsonl --concurrency 4 --retry 3
+skills/cxporter-mcp/scripts/cxporter.sh batch --server codex_apps --input calls.jsonl --concurrency 1 --retry 3
 ```
 
 Each JSONL input line is:
@@ -124,6 +124,10 @@ Each JSONL input line is:
 `batch` writes JSONL results with `line`, `server`, `tool`, `success`,
 `attempts`, and either `result` or `error`. It continues after per-line
 failures and exits non-zero if any line fails.
+
+For write-heavy connector batches, keep `--concurrency 1` unless every selected
+tool advertises parallel call support. Use `--force-parallel` only when duplicate
+or overlapping side effects are acceptable.
 
 Run as an MCP server:
 

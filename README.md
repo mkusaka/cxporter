@@ -33,7 +33,7 @@ cargo run -- apps
 cargo run -- schema codex_apps github_fetch_pr
 cargo run -- call codex_apps <tool_name> '{"query":"hello"}'
 cargo run -- call codex_apps <tool_name> --args-file args.json
-cargo run -- batch --server codex_apps --input calls.jsonl --concurrency 4 --retry 3
+cargo run -- batch --server codex_apps --input calls.jsonl --concurrency 1 --retry 3
 cargo run -- serve --server codex_apps
 ```
 
@@ -131,8 +131,12 @@ Batch input is newline-delimited JSON:
 {"tool":"github_fetch_pr","arguments":{"repo_full_name":"openai/codex","pr_number":124}}
 ```
 
-Run it with bounded concurrency and opt-in retries:
+Run it with bounded concurrency and opt-in retries. `batch` refuses
+`--concurrency > 1` when any selected tool does not advertise parallel call
+support. Keep write-heavy connector batches at `--concurrency 1`, or use
+`--force-parallel` only when duplicate or overlapping side effects are
+acceptable.
 
 ```bash
-cargo run -- batch --server codex_apps --input calls.jsonl --concurrency 4 --retry 3 --retry-delay-ms 500
+cargo run -- batch --server codex_apps --input calls.jsonl --concurrency 1 --retry 3 --retry-delay-ms 500
 ```

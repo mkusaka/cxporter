@@ -230,7 +230,7 @@ fn batch_outputs_jsonl_and_continues_after_failures() -> Result<()> {
             "--input",
             calls_file.to_str().context("calls path utf8")?,
             "--concurrency",
-            "2",
+            "1",
         ],
         None,
     )?;
@@ -261,6 +261,141 @@ fn batch_outputs_jsonl_and_continues_after_failures() -> Result<()> {
             .unwrap()
             .contains("invalid JSONL")
     );
+
+    Ok(())
+}
+
+#[test]
+fn batch_rejects_parallel_non_parallel_tools_without_force() -> Result<()> {
+    let temp = TempDir::new("cxporter-batch-parallel-guard-e2e")?;
+    let fake_server = temp.path().join("fake_mcp_server.sh");
+    let state_file = temp.path().join("fake_state");
+    let calls_file = temp.path().join("calls.jsonl");
+    write_batch_fake_mcp_server(&fake_server, &state_file)?;
+    write_codex_config(temp.path(), &fake_server)?;
+    fs::write(
+        &calls_file,
+        concat!(
+            "{\"tool\":\"echo\",\"arguments\":{\"message\":\"one\"}}\n",
+            "{\"tool\":\"echo\",\"arguments\":{\"message\":\"two\"}}\n",
+        ),
+    )
+    .context("write calls jsonl")?;
+
+    let output = run_cxporter(
+        temp.path(),
+        &[
+            "batch",
+            "--server",
+            "fake",
+            "--input",
+            calls_file.to_str().context("calls path utf8")?,
+            "--concurrency",
+            "2",
+        ],
+        None,
+    )?;
+    assert!(
+        !output.status.success(),
+        "batch should fail when non-parallel tools are run concurrently"
+    );
+    assert!(
+        output.stdout.trim().is_empty(),
+        "batch should not emit partial JSONL for a concurrency policy error"
+    );
+    assert!(
+        output
+            .stderr
+            .contains("do not advertise parallel call support"),
+        "stderr was: {}",
+        output.stderr
+    );
+    assert!(output.stderr.contains("raw=echo exported=fake.echo"));
+
+    Ok(())
+}
+
+#[test]
+fn batch_allows_force_parallel_for_non_parallel_tools() -> Result<()> {
+    let temp = TempDir::new("cxporter-batch-force-parallel-e2e")?;
+    let fake_server = temp.path().join("fake_mcp_server.sh");
+    let state_file = temp.path().join("fake_state");
+    let calls_file = temp.path().join("calls.jsonl");
+    write_batch_fake_mcp_server(&fake_server, &state_file)?;
+    write_codex_config(temp.path(), &fake_server)?;
+    fs::write(
+        &calls_file,
+        concat!(
+            "{\"tool\":\"echo\",\"arguments\":{\"message\":\"one\"}}\n",
+            "{\"tool\":\"echo\",\"arguments\":{\"message\":\"two\"}}\n",
+        ),
+    )
+    .context("write calls jsonl")?;
+
+    let output = run_cxporter(
+        temp.path(),
+        &[
+            "batch",
+            "--server",
+            "fake",
+            "--input",
+            calls_file.to_str().context("calls path utf8")?,
+            "--concurrency",
+            "2",
+            "--force-parallel",
+        ],
+        None,
+    )?;
+    assert!(
+        output.status.success(),
+        "cxporter failed: {}",
+        output.stderr
+    );
+    let lines = parse_jsonl(&output.stdout)?;
+    assert_eq!(lines.len(), 2);
+    assert!(lines.iter().all(|line| line["success"] == true));
+
+    Ok(())
+}
+
+#[test]
+fn batch_allows_parallel_read_only_tools() -> Result<()> {
+    let temp = TempDir::new("cxporter-batch-readonly-parallel-e2e")?;
+    let fake_server = temp.path().join("fake_mcp_server.sh");
+    let state_file = temp.path().join("fake_state");
+    let calls_file = temp.path().join("calls.jsonl");
+    write_batch_fake_mcp_server(&fake_server, &state_file)?;
+    write_codex_config(temp.path(), &fake_server)?;
+    fs::write(
+        &calls_file,
+        concat!(
+            "{\"tool\":\"confluence_search\",\"arguments\":{\"query\":\"one\"}}\n",
+            "{\"tool\":\"confluence_search\",\"arguments\":{\"query\":\"two\"}}\n",
+        ),
+    )
+    .context("write calls jsonl")?;
+
+    let output = run_cxporter(
+        temp.path(),
+        &[
+            "batch",
+            "--server",
+            "fake",
+            "--input",
+            calls_file.to_str().context("calls path utf8")?,
+            "--concurrency",
+            "2",
+        ],
+        None,
+    )?;
+    assert!(
+        output.status.success(),
+        "cxporter failed: {}",
+        output.stderr
+    );
+    let lines = parse_jsonl(&output.stdout)?;
+    assert_eq!(lines.len(), 2);
+    assert!(lines.iter().all(|line| line["success"] == true));
 
     Ok(())
 }
@@ -422,7 +557,7 @@ while IFS= read -r line; do
       printf '{{"jsonrpc":"2.0","id":%s,"result":{{"protocolVersion":"2025-06-18","capabilities":{{"tools":{{}}}},"serverInfo":{{"name":"fake-mcp","version":"0.0.0"}}}}}}\n' "$id"
       ;;
     *'"method":"tools/list"'*|*'"method": "tools/list"'*)
-      printf '{{"jsonrpc":"2.0","id":%s,"result":{{"tools":[{{"name":"echo","description":"Echo input","inputSchema":{{"type":"object","properties":{{"message":{{"type":"string"}}}},"required":["message"]}}}},{{"name":"confluence_search","description":"Search Confluence","inputSchema":{{"type":"object","properties":{{"query":{{"type":"string"}}}}}}}},{{"name":"error_tool","description":"Return isError","inputSchema":{{"type":"object","properties":{{}}}}}},{{"name":"flaky","description":"Fails once","inputSchema":{{"type":"object","properties":{{}}}}}}]}}}}\n' "$id"
+      printf '{{"jsonrpc":"2.0","id":%s,"result":{{"tools":[{{"name":"echo","description":"Echo input","inputSchema":{{"type":"object","properties":{{"message":{{"type":"string"}}}},"required":["message"]}}}},{{"name":"confluence_search","description":"Search Confluence","inputSchema":{{"type":"object","properties":{{"query":{{"type":"string"}}}}}},"annotations":{{"readOnlyHint":true}}}},{{"name":"error_tool","description":"Return isError","inputSchema":{{"type":"object","properties":{{}}}}}},{{"name":"flaky","description":"Fails once","inputSchema":{{"type":"object","properties":{{}}}}}}]}}}}\n' "$id"
       ;;
     *'"method":"tools/call"'*|*'"method": "tools/call"'*)
       case "$line" in

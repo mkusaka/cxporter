@@ -173,6 +173,11 @@ enum Command {
         concurrency: usize,
         #[arg(
             long,
+            help = "Allow concurrent calls even when selected tools do not advertise parallel support."
+        )]
+        force_parallel: bool,
+        #[arg(
+            long,
             default_value_t = 0,
             help = "Retry failed transport/startup/tool-call attempts."
         )]
@@ -353,6 +358,7 @@ struct ToolCatalogEntry {
     callable_name: String,
     connector_id: Option<String>,
     connector_name: Option<String>,
+    supports_parallel_tool_calls: bool,
     tool: Tool,
 }
 
@@ -380,6 +386,8 @@ struct ResolvedBatchCall {
     line: usize,
     requested_tool: String,
     raw_tool: String,
+    exported_tool: String,
+    supports_parallel_tool_calls: bool,
     arguments: Value,
 }
 
@@ -465,6 +473,7 @@ async fn run() -> Result<()> {
             server,
             input,
             concurrency,
+            force_parallel,
             retry,
             retry_delay_ms,
             no_preflight,
@@ -478,6 +487,7 @@ async fn run() -> Result<()> {
                 &server,
                 &input,
                 concurrency,
+                force_parallel,
                 !no_preflight,
                 retry_options,
             )
@@ -804,6 +814,7 @@ fn tool_catalog_from_infos(mut tool_infos: Vec<ToolInfo>) -> ToolCatalog {
                 &tool_info.tool.name,
             );
             let exported_tool = unique_exported_tool_name(&base_name, &mut used_names);
+            let supports_parallel_tool_calls = effective_supports_parallel_tool_calls(&tool_info);
             ToolCatalogEntry {
                 server: tool_info.server_name,
                 raw_tool: tool_info.tool.name.to_string(),
@@ -811,11 +822,22 @@ fn tool_catalog_from_infos(mut tool_infos: Vec<ToolInfo>) -> ToolCatalog {
                 callable_name: tool_info.callable_name,
                 connector_id: tool_info.connector_id,
                 connector_name: tool_info.connector_name,
+                supports_parallel_tool_calls,
                 tool: tool_info.tool,
             }
         })
         .collect();
     ToolCatalog { entries }
+}
+
+fn effective_supports_parallel_tool_calls(tool_info: &ToolInfo) -> bool {
+    tool_info.supports_parallel_tool_calls
+        || tool_info
+            .tool
+            .annotations
+            .as_ref()
+            .and_then(|annotations| annotations.read_only_hint)
+            .unwrap_or(false)
 }
 
 impl ServerHandler for CxporterMcpServer {
@@ -1349,6 +1371,7 @@ async fn run_batch(
     server: &str,
     input: &str,
     concurrency: usize,
+    force_parallel: bool,
     preflight: bool,
     retry_options: RetryOptions,
 ) -> Result<usize> {
@@ -1397,6 +1420,8 @@ async fn run_batch(
             }),
         }
     }
+
+    validate_batch_parallelism(concurrency, force_parallel, &calls)?;
 
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let mut tasks = JoinSet::new();
@@ -1452,6 +1477,41 @@ async fn run_batch(
     Ok(failure_count)
 }
 
+fn validate_batch_parallelism(
+    concurrency: usize,
+    force_parallel: bool,
+    calls: &[ResolvedBatchCall],
+) -> Result<()> {
+    if concurrency <= 1 || force_parallel {
+        return Ok(());
+    }
+
+    let mut seen = HashSet::<&str>::new();
+    let non_parallel_tools = calls
+        .iter()
+        .filter(|call| !call.supports_parallel_tool_calls)
+        .filter_map(|call| {
+            if seen.insert(call.raw_tool.as_str()) {
+                Some(format!(
+                    "raw={} exported={}",
+                    call.raw_tool, call.exported_tool
+                ))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if non_parallel_tools.is_empty() {
+        return Ok(());
+    }
+
+    bail!(
+        "--concurrency {concurrency} requested, but some selected tools do not advertise parallel call support: {}; use --concurrency 1 or --force-parallel to override",
+        non_parallel_tools.join("; ")
+    )
+}
+
 fn read_batch_items(input: &str) -> Result<Vec<BatchItem>> {
     let reader: Box<dyn BufRead> = if input == "-" {
         Box::new(BufReader::new(std::io::stdin()))
@@ -1502,6 +1562,8 @@ fn resolve_batch_call(
         line,
         requested_tool: request.tool,
         raw_tool: entry.raw_tool.clone(),
+        exported_tool: entry.exported_tool.clone(),
+        supports_parallel_tool_calls: entry.supports_parallel_tool_calls,
         arguments: request.arguments,
     })
 }
