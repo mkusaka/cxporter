@@ -1,0 +1,78 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:best-practices"],
+  platformAutomerge: false,
+  minimumReleaseAge: "7 days",
+  customManagers: [
+    {
+      customType: "regex",
+      description: "Update workflow tool versions declared in environment variables",
+      managerFilePatterns: ["/^\\.github/workflows/workflow-lint\\.yml$/"],
+      matchStrings: [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\s+[A-Z0-9_]+_VERSION:\\s*(?<currentValue>v?\\d+\\.\\d+\\.\\d+)",
+      ],
+      versioningTemplate: "semver",
+    },
+    {
+      customType: "regex",
+      description: "Update the zizmor CLI version used by zizmor-action",
+      managerFilePatterns: ["/^\\.github/workflows/workflow-lint\\.yml$/"],
+      matchStrings: [
+        "version:\\s*(?<currentValue>v?\\d+\\.\\d+\\.\\d+) # renovate: depName=zizmorcore/zizmor",
+      ],
+      depNameTemplate: "zizmorcore/zizmor",
+      datasourceTemplate: "github-releases",
+      versioningTemplate: "semver",
+    },
+  ],
+  packageRules: [
+    {
+      description: "Group non-major Cargo runtime dependency updates",
+      matchManagers: ["cargo"],
+      matchDepTypes: ["dependencies", "build-dependencies", "workspace.dependencies"],
+      matchUpdateTypes: ["minor", "patch", "pin"],
+      groupName: "cargo non-major runtime dependencies",
+      automerge: true,
+      automergeType: "pr",
+    },
+    {
+      description: "Group non-major Cargo development dependency updates",
+      matchManagers: ["cargo"],
+      matchDepTypes: ["dev-dependencies"],
+      matchUpdateTypes: ["minor", "patch", "pin"],
+      groupName: "cargo non-major development dependencies",
+      automerge: true,
+      automergeType: "pr",
+    },
+    {
+      description: "Group non-major GitHub Actions updates",
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["minor", "patch", "digest", "pinDigest"],
+      groupName: "github-actions non-major updates",
+      automerge: true,
+      automergeType: "pr",
+    },
+    {
+      description: "Group non-major workflow tooling updates",
+      matchManagers: ["custom.regex"],
+      matchUpdateTypes: ["minor", "patch", "pin"],
+      groupName: "workflow tooling non-major updates",
+      automerge: true,
+      automergeType: "pr",
+    },
+    {
+      description: "Update zizmor-action together with the zizmor CLI version it runs",
+      matchManagers: ["custom.regex", "github-actions"],
+      matchDepNames: ["zizmorcore/zizmor", "zizmorcore/zizmor-action"],
+      matchUpdateTypes: ["minor", "patch", "digest", "pinDigest", "pin"],
+      groupName: "workflow tooling non-major updates",
+    },
+    {
+      description: "Disable Codex monorepo git package aliases that Renovate resolves as package names",
+      matchManagers: ["cargo"],
+      matchDatasources: ["git-refs"],
+      matchPackageNames: ["/^codex-/"],
+      enabled: false,
+    },
+  ],
+}
