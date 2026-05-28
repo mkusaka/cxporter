@@ -3145,7 +3145,6 @@ dependencies = [
 name = "cxporter"
 version = "0.1.0"
 dependencies = [
- "allocative",
  "anyhow",
  "async-channel",
  "chrono",

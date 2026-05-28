@@ -34,8 +34,8 @@ cargo install cargo-shear --version 1.12.4 --locked
 cargo shear --locked
 ```
 
-Review findings before running `cargo shear --fix`. The CI `shear` job is
-currently non-blocking while the project evaluates the check.
+Review findings before running `cargo shear --fix`. CI runs the same check with
+`--deny-warnings`.
 
 ## Usage
 

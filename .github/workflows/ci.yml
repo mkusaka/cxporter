@@ -35,6 +35,26 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+  shear:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Install cargo-shear
+        env:
+          # renovate: datasource=crate depName=cargo-shear
+          CARGO_SHEAR_VERSION: 1.12.4
+        run: cargo install cargo-shear --version "$CARGO_SHEAR_VERSION" --locked
+      - name: Check unused dependencies
+        run: cargo shear --locked --deny-warnings
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
