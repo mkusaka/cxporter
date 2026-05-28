@@ -12,14 +12,18 @@ async-channel = "2.3.1"
 clap = { version = "4", features = ["derive"] }
 codex-core = { git = "https://github.com/openai/codex", rev = "75b7e06621ac38c2b26a73832e797d49a7307f2b", package = "codex-core" }
 codex-core-plugins = { git = "https://github.com/openai/codex", rev = "75b7e06621ac38c2b26a73832e797d49a7307f2b", package = "codex-core-plugins" }
+codex-config = { git = "https://github.com/openai/codex", rev = "75b7e06621ac38c2b26a73832e797d49a7307f2b", package = "codex-config" }
 codex-exec-server = { git = "https://github.com/openai/codex", rev = "75b7e06621ac38c2b26a73832e797d49a7307f2b", package = "codex-exec-server" }
+codex-keyring-store = { git = "https://github.com/openai/codex", rev = "75b7e06621ac38c2b26a73832e797d49a7307f2b", package = "codex-keyring-store" }
 codex-login = { git = "https://github.com/openai/codex", rev = "75b7e06621ac38c2b26a73832e797d49a7307f2b", package = "codex-login" }
 codex-mcp = { git = "https://github.com/openai/codex", rev = "75b7e06621ac38c2b26a73832e797d49a7307f2b", package = "codex-mcp" }
 codex-protocol = { git = "https://github.com/openai/codex", rev = "75b7e06621ac38c2b26a73832e797d49a7307f2b", package = "codex-protocol" }
 codex-utils-cli = { git = "https://github.com/openai/codex", rev = "75b7e06621ac38c2b26a73832e797d49a7307f2b", package = "codex-utils-cli" }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 rmcp = { version = "0.15.0", default-features = false, features = ["server", "transport-io"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7.18"
 

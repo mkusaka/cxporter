@@ -522,6 +522,234 @@ fn call_retries_transient_tool_call_errors_when_requested() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn auth_inspect_bearer_env_redacts_and_export_requires_reveal() -> Result<()> {
+    let temp = TempDir::new("cxporter-auth-bearer-e2e")?;
+    write_bearer_auth_config(temp.path())?;
+    let secret = "fixture-bearer-token";
+
+    let inspect = run_cxporter_with_env(
+        temp.path(),
+        &["auth", "inspect", "datadog", "--format", "json"],
+        None,
+        &[("DATADOG_MCP_TOKEN", secret)],
+    )?;
+    assert!(
+        inspect.status.success(),
+        "cxporter failed: {}",
+        inspect.stderr
+    );
+    assert_no_secret_leak(&inspect, &[secret]);
+    let value: Value = serde_json::from_str(&inspect.stdout).context("parse auth inspect JSON")?;
+    assert_eq!(value["source"], "bearer_token_env_var");
+    assert_eq!(value["bearerTokenEnvVar"], "DATADOG_MCP_TOKEN");
+    assert_eq!(value["headers"]["Authorization"], "Bearer <redacted>");
+
+    let blocked = run_cxporter_with_env(
+        temp.path(),
+        &["auth", "export", "datadog", "--format", "json"],
+        None,
+        &[("DATADOG_MCP_TOKEN", secret)],
+    )?;
+    assert!(
+        !blocked.status.success(),
+        "export without --reveal should fail"
+    );
+    assert!(blocked.stderr.contains("--reveal"));
+    assert_no_secret_leak(&blocked, &[secret]);
+
+    let export = run_cxporter_with_env(
+        temp.path(),
+        &["auth", "export", "datadog", "--format", "json", "--reveal"],
+        None,
+        &[("DATADOG_MCP_TOKEN", secret)],
+    )?;
+    assert!(
+        export.status.success(),
+        "cxporter failed: {}",
+        export.stderr
+    );
+    let value: Value = serde_json::from_str(&export.stdout).context("parse auth export JSON")?;
+    assert_eq!(
+        value["headers"]["Authorization"],
+        format!("Bearer {secret}")
+    );
+
+    let curl = run_cxporter_with_env(
+        temp.path(),
+        &["auth", "export", "datadog", "--format", "curl", "--reveal"],
+        None,
+        &[("DATADOG_MCP_TOKEN", secret)],
+    )?;
+    assert!(curl.status.success(), "cxporter failed: {}", curl.stderr);
+    assert!(
+        curl.stdout
+            .contains(&format!("Authorization: Bearer {secret}"))
+    );
+
+    Ok(())
+}
+
+#[test]
+fn auth_inspect_static_and_env_headers_masks_only_secret_values() -> Result<()> {
+    let temp = TempDir::new("cxporter-auth-headers-e2e")?;
+    write_headers_auth_config(temp.path())?;
+    let static_secret = "static-secret-fixture";
+    let env_secret = "env-secret-fixture";
+
+    let inspect = run_cxporter_with_env(
+        temp.path(),
+        &["auth", "inspect", "headers", "--format", "json"],
+        None,
+        &[("HEADER_ENV_TOKEN", env_secret)],
+    )?;
+    assert!(
+        inspect.status.success(),
+        "cxporter failed: {}",
+        inspect.stderr
+    );
+    assert_no_secret_leak(&inspect, &[static_secret, env_secret]);
+    let value: Value = serde_json::from_str(&inspect.stdout).context("parse auth inspect JSON")?;
+    assert_eq!(value["source"], "http_headers");
+    assert_eq!(value["headers"]["X-Trace"], "trace-public");
+    assert_eq!(value["headers"]["X-Api-Key"], "<redacted>");
+    assert_eq!(value["headers"]["X-Env-Token"], "<redacted>");
+    assert_eq!(value["envHttpHeaders"]["X-Env-Token"], "HEADER_ENV_TOKEN");
+
+    let export = run_cxporter_with_env(
+        temp.path(),
+        &["auth", "export", "headers", "--format", "env", "--reveal"],
+        None,
+        &[("HEADER_ENV_TOKEN", env_secret)],
+    )?;
+    assert!(
+        export.status.success(),
+        "cxporter failed: {}",
+        export.stderr
+    );
+    assert!(export.stdout.contains(static_secret));
+    assert!(export.stdout.contains(env_secret));
+    assert!(export.stdout.contains("CXPORTER_HEADER_"));
+
+    Ok(())
+}
+
+#[test]
+fn auth_inspect_oauth_missing_reports_metadata_without_header() -> Result<()> {
+    let temp = TempDir::new("cxporter-auth-oauth-missing-e2e")?;
+    write_oauth_auth_config(temp.path())?;
+
+    let inspect = run_cxporter(
+        temp.path(),
+        &["auth", "inspect", "datadog", "--format", "json"],
+        None,
+    )?;
+    assert!(
+        inspect.status.success(),
+        "cxporter failed: {}",
+        inspect.stderr
+    );
+    let value: Value = serde_json::from_str(&inspect.stdout).context("parse auth inspect JSON")?;
+    assert_eq!(value["source"], "mcp_oauth");
+    assert_eq!(value["storeMode"], "file");
+    let headers = value.get("headers").and_then(Value::as_object);
+    assert!(headers.map(serde_json::Map::is_empty).unwrap_or(true));
+    assert!(
+        value["warnings"]
+            .as_array()
+            .context("warnings array")?
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .unwrap_or("")
+                .contains("No stored MCP OAuth"))
+    );
+
+    let export = run_cxporter(
+        temp.path(),
+        &["auth", "export", "datadog", "--format", "json", "--reveal"],
+        None,
+    )?;
+    assert!(
+        !export.status.success(),
+        "OAuth export should fail when no header is available"
+    );
+    assert!(export.stderr.contains("no exportable HTTP auth headers"));
+
+    Ok(())
+}
+
+#[test]
+fn auth_export_oauth_present_reveals_only_access_token_when_requested() -> Result<()> {
+    let temp = TempDir::new("cxporter-auth-oauth-present-e2e")?;
+    write_oauth_auth_config(temp.path())?;
+    let access_token = "fixture-oauth-access-token";
+    let refresh_token = "fixture-oauth-refresh-token";
+    write_oauth_credentials(temp.path(), access_token, refresh_token)?;
+
+    let inspect = run_cxporter(
+        temp.path(),
+        &["auth", "inspect", "datadog", "--format", "json"],
+        None,
+    )?;
+    assert!(
+        inspect.status.success(),
+        "cxporter failed: {}",
+        inspect.stderr
+    );
+    assert_no_secret_leak(&inspect, &[access_token, refresh_token]);
+    let value: Value = serde_json::from_str(&inspect.stdout).context("parse auth inspect JSON")?;
+    assert_eq!(value["source"], "mcp_oauth");
+    assert_eq!(value["headers"]["Authorization"], "Bearer <redacted>");
+    assert_eq!(value["expiresAt"], "1970-01-01T00:00:00Z");
+    assert_eq!(
+        value["scopes"].as_array().context("scopes array")?,
+        &vec![json!("mcp_read"), json!("metrics_read")]
+    );
+
+    let export = run_cxporter(
+        temp.path(),
+        &["auth", "export", "datadog", "--format", "json", "--reveal"],
+        None,
+    )?;
+    assert!(
+        export.status.success(),
+        "cxporter failed: {}",
+        export.stderr
+    );
+    assert!(export.stdout.contains(access_token));
+    assert!(!export.stdout.contains(refresh_token));
+    let value: Value = serde_json::from_str(&export.stdout).context("parse auth export JSON")?;
+    assert_eq!(
+        value["headers"]["Authorization"],
+        format!("Bearer {access_token}")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn auth_inspect_rejects_stdio_servers() -> Result<()> {
+    let temp = TempDir::new("cxporter-auth-stdio-e2e")?;
+    let fake_server = temp.path().join("fake_mcp_server.sh");
+    write_fake_mcp_server(&fake_server)?;
+    write_codex_config(temp.path(), &fake_server)?;
+
+    let output = run_cxporter(
+        temp.path(),
+        &["auth", "inspect", "fake", "--format", "json"],
+        None,
+    )?;
+    assert!(
+        !output.status.success(),
+        "stdio auth inspect should be unsupported"
+    );
+    assert!(output.stderr.contains("stdio transport"));
+    assert!(output.stderr.contains("streamable_http"));
+
+    Ok(())
+}
+
 struct TempDir {
     path: PathBuf,
 }
@@ -564,12 +792,24 @@ struct CommandOutput {
 }
 
 fn run_cxporter(codex_home: &Path, args: &[&str], stdin: Option<&str>) -> Result<CommandOutput> {
+    run_cxporter_with_env(codex_home, args, stdin, &[])
+}
+
+fn run_cxporter_with_env(
+    codex_home: &Path,
+    args: &[&str],
+    stdin: Option<&str>,
+    envs: &[(&str, &str)],
+) -> Result<CommandOutput> {
     let mut command = Command::new(env!("CARGO_BIN_EXE_cxporter"));
     command
         .args(args)
         .env("CODEX_HOME", codex_home)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    for (name, value) in envs {
+        command.env(name, value);
+    }
     if stdin.is_some() {
         command.stdin(Stdio::piped());
     }
@@ -588,6 +828,21 @@ fn run_cxporter(codex_home: &Path, args: &[&str], stdin: Option<&str>) -> Result
     })
 }
 
+fn assert_no_secret_leak(output: &CommandOutput, secrets: &[&str]) {
+    for secret in secrets {
+        assert!(
+            !output.stdout.contains(secret),
+            "stdout leaked secret {secret:?}: {}",
+            output.stdout
+        );
+        assert!(
+            !output.stderr.contains(secret),
+            "stderr leaked secret {secret:?}: {}",
+            output.stderr
+        );
+    }
+}
+
 fn write_codex_config(codex_home: &Path, fake_server: &Path) -> Result<()> {
     let config = format!(
         r#"approval_policy = "never"
@@ -600,6 +855,71 @@ tool_timeout_sec = 5.0
         escape_toml_string(&fake_server.to_string_lossy()),
     );
     fs::write(codex_home.join("config.toml"), config).context("write Codex config.toml")
+}
+
+fn write_bearer_auth_config(codex_home: &Path) -> Result<()> {
+    let config = r#"approval_policy = "never"
+
+[mcp_servers.datadog]
+url = "https://mcp.datadoghq.invalid/api/unstable/mcp-server/mcp"
+bearer_token_env_var = "DATADOG_MCP_TOKEN"
+startup_timeout_sec = 5.0
+tool_timeout_sec = 5.0
+"#;
+    fs::write(codex_home.join("config.toml"), config).context("write Codex config.toml")
+}
+
+fn write_headers_auth_config(codex_home: &Path) -> Result<()> {
+    let config = r#"approval_policy = "never"
+
+[mcp_servers.headers]
+url = "https://headers.example.invalid/mcp"
+startup_timeout_sec = 5.0
+tool_timeout_sec = 5.0
+
+[mcp_servers.headers.http_headers]
+X-Trace = "trace-public"
+X-Api-Key = "static-secret-fixture"
+
+[mcp_servers.headers.env_http_headers]
+X-Env-Token = "HEADER_ENV_TOKEN"
+"#;
+    fs::write(codex_home.join("config.toml"), config).context("write Codex config.toml")
+}
+
+fn write_oauth_auth_config(codex_home: &Path) -> Result<()> {
+    let config = r#"approval_policy = "never"
+mcp_oauth_credentials_store = "file"
+
+[mcp_servers.datadog]
+url = "https://mcp.datadoghq.invalid/api/unstable/mcp-server/mcp"
+startup_timeout_sec = 5.0
+tool_timeout_sec = 5.0
+"#;
+    fs::write(codex_home.join("config.toml"), config).context("write Codex config.toml")
+}
+
+fn write_oauth_credentials(
+    codex_home: &Path,
+    access_token: &str,
+    refresh_token: &str,
+) -> Result<()> {
+    let credentials = json!({
+        "fixture": {
+            "server_name": "datadog",
+            "server_url": "https://mcp.datadoghq.invalid/api/unstable/mcp-server/mcp",
+            "client_id": "fixture-client",
+            "access_token": access_token,
+            "expires_at": 0,
+            "refresh_token": refresh_token,
+            "scopes": ["mcp_read", "metrics_read"]
+        }
+    });
+    fs::write(
+        codex_home.join(".credentials.json"),
+        serde_json::to_string(&credentials)?,
+    )
+    .context("write Codex OAuth credentials fixture")
 }
 
 fn write_plugin_codex_config(codex_home: &Path, plugin_config_name: &str) -> Result<()> {

@@ -6,8 +6,10 @@ use std::fs::File;
 use std::future::Future;
 use std::io::BufRead;
 use std::io::BufReader;
+use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,15 +19,22 @@ use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
 use async_channel::unbounded;
+use chrono::DateTime;
+use chrono::SecondsFormat;
+use chrono::Utc;
 use clap::Parser;
 use clap::Subcommand;
 use clap::ValueEnum;
+use codex_config::McpServerTransportConfig;
+use codex_config::types::OAuthCredentialsStoreMode;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
 use codex_core_plugins::PluginsManager;
 use codex_exec_server::EnvironmentManager;
 use codex_exec_server::ExecServerRuntimePaths;
+use codex_keyring_store::DefaultKeyringStore;
+use codex_keyring_store::KeyringStore;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_mcp::McpConfig;
@@ -56,7 +65,10 @@ use rmcp::service::RequestContext;
 use rmcp::service::RoleServer;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::Map as JsonMap;
 use serde_json::Value;
+use sha2::Digest;
+use sha2::Sha256;
 use tokio::sync::Mutex;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -195,6 +207,11 @@ enum Command {
         #[arg(long, help = "Bypass app caches.")]
         force: bool,
     },
+    #[command(about = "Inspect or export MCP HTTP auth headers.")]
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommand,
+    },
     #[command(about = "Run as a stdio MCP server that proxies Codex-authenticated MCP tools.")]
     Serve {
         #[arg(
@@ -204,6 +221,38 @@ enum Command {
         )]
         server: Vec<String>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum AuthCommand {
+    #[command(about = "Inspect auth source metadata without revealing secrets.")]
+    Inspect {
+        #[arg(help = "MCP server name.")]
+        server: String,
+        #[arg(long, value_enum, default_value = "json", help = "Output format.")]
+        format: AuthInspectFormat,
+    },
+    #[command(about = "Export auth headers. Requires --reveal.")]
+    Export {
+        #[arg(help = "MCP server name.")]
+        server: String,
+        #[arg(long, value_enum, default_value = "json", help = "Output format.")]
+        format: AuthExportFormat,
+        #[arg(long, help = "Reveal secret header values in output.")]
+        reveal: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum AuthInspectFormat {
+    Json,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum AuthExportFormat {
+    Json,
+    Env,
+    Curl,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -283,6 +332,61 @@ struct AppConnector {
     tools: Vec<String>,
     is_accessible: bool,
     is_enabled: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SecretMode {
+    Redacted,
+    Revealed,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthReport {
+    server: String,
+    transport: String,
+    url: String,
+    source: String,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    headers: BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bearer_token_env_var: Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    env_http_headers: BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    store_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires_at: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    scopes: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<String>,
+}
+
+#[derive(Debug)]
+struct OAuthAccessToken {
+    access_token: String,
+    expires_at: Option<u64>,
+    scopes: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StoredOAuthTokensWire {
+    server_name: String,
+    token_response: Value,
+    #[serde(default)]
+    expires_at: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FallbackTokenEntry {
+    server_name: String,
+    server_url: String,
+    access_token: String,
+    #[serde(default)]
+    expires_at: Option<u64>,
+    #[serde(default)]
+    scopes: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -461,6 +565,32 @@ async fn run() -> Result<()> {
             let connectors = list_apps(&state, force).await?;
             print_json(&connectors)?;
         }
+        Command::Auth { command } => match command {
+            AuthCommand::Inspect { server, format } => {
+                let report = inspect_auth(&state, &server, SecretMode::Redacted)?;
+                match format {
+                    AuthInspectFormat::Json => print_json(&report)?,
+                }
+            }
+            AuthCommand::Export {
+                server,
+                format,
+                reveal,
+            } => {
+                if !reveal {
+                    bail!("auth export refuses to print secret header values without --reveal");
+                }
+                let report = inspect_auth(&state, &server, SecretMode::Revealed)?;
+                if report.headers.is_empty() {
+                    bail!("MCP server '{server}' has no exportable HTTP auth headers");
+                }
+                match format {
+                    AuthExportFormat::Json => print_json(&report)?,
+                    AuthExportFormat::Env => print_auth_env(&report)?,
+                    AuthExportFormat::Curl => print_auth_curl(&report)?,
+                }
+            }
+        },
         Command::Serve { server } => {
             serve_mcp_server(&state, &server).await?;
         }
@@ -1196,6 +1326,441 @@ async fn list_apps(state: &CodexState, force: bool) -> Result<Vec<AppConnector>>
 
     shutdown(bundle).await;
     Ok(connectors.into_values().collect())
+}
+
+fn inspect_auth(
+    state: &CodexState,
+    server_name: &str,
+    secret_mode: SecretMode,
+) -> Result<AuthReport> {
+    let servers = effective_mcp_servers(&state.mcp_config, state.auth.as_ref());
+    let server = servers
+        .get(server_name)
+        .ok_or_else(|| anyhow!("unknown MCP server '{server_name}'"))?;
+    let config = server
+        .configured_config()
+        .ok_or_else(|| anyhow!("MCP server '{server_name}' has no inspectable config"))?;
+
+    let McpServerTransportConfig::StreamableHttp {
+        url,
+        bearer_token_env_var,
+        http_headers,
+        env_http_headers,
+    } = &config.transport
+    else {
+        bail!(
+            "MCP server '{server_name}' uses stdio transport; auth inspect/export supports streamable_http MCP servers only"
+        );
+    };
+
+    let is_codex_runtime = server_name == "codex_apps"
+        && host_owned_codex_apps_enabled(&state.mcp_config, state.auth.as_ref());
+    if is_codex_runtime && secret_mode == SecretMode::Revealed {
+        bail!(
+            "auth export does not support codex_apps runtime auth; use Codex-managed tool calls instead"
+        );
+    }
+
+    let mut warnings = Vec::new();
+    let mut headers = BTreeMap::new();
+    let mut env_header_names = BTreeMap::new();
+    let mut static_headers_present = false;
+    let mut env_headers_present = false;
+
+    if let Some(static_headers) = http_headers {
+        for (name, value) in sorted_headers(static_headers) {
+            static_headers_present = true;
+            insert_header(
+                &mut headers,
+                name,
+                header_value_for_output(name, value, secret_mode, HeaderValueKind::Static),
+            );
+        }
+    }
+
+    if let Some(env_headers) = env_http_headers {
+        for (name, env_var) in sorted_headers(env_headers) {
+            env_headers_present = true;
+            env_header_names.insert(name.to_string(), env_var.to_string());
+            match env::var(env_var) {
+                Ok(value) if !value.trim().is_empty() => {
+                    insert_header(
+                        &mut headers,
+                        name,
+                        header_value_for_output(name, &value, secret_mode, HeaderValueKind::Env),
+                    );
+                }
+                Ok(_) => warnings.push(format!(
+                    "Environment variable {env_var} for header {name} is empty; Codex will not attach that header."
+                )),
+                Err(env::VarError::NotPresent) => warnings.push(format!(
+                    "Environment variable {env_var} for header {name} is not set; Codex will not attach that header."
+                )),
+                Err(env::VarError::NotUnicode(_)) => warnings.push(format!(
+                    "Environment variable {env_var} for header {name} contains invalid Unicode; Codex will not attach that header."
+                )),
+            }
+        }
+    }
+
+    if let Some(env_var) = bearer_token_env_var {
+        match env::var(env_var) {
+            Ok(value) if !value.is_empty() => {
+                insert_header(
+                    &mut headers,
+                    "Authorization",
+                    match secret_mode {
+                        SecretMode::Redacted => "Bearer <redacted>".to_string(),
+                        SecretMode::Revealed => format!("Bearer {value}"),
+                    },
+                );
+            }
+            Ok(_) => warnings.push(format!(
+                "Environment variable {env_var} for bearer_token_env_var is empty; Codex will fail to start this MCP transport."
+            )),
+            Err(env::VarError::NotPresent) => warnings.push(format!(
+                "Environment variable {env_var} for bearer_token_env_var is not set; Codex will fail to start this MCP transport."
+            )),
+            Err(env::VarError::NotUnicode(_)) => warnings.push(format!(
+                "Environment variable {env_var} for bearer_token_env_var contains invalid Unicode; Codex will fail to start this MCP transport."
+            )),
+        }
+    }
+
+    let mut oauth_metadata = None;
+    if is_codex_runtime {
+        warnings.push(
+            "codex_apps auth is injected by the Codex runtime and is not a provider API token; export is unsupported."
+                .to_string(),
+        );
+    } else if bearer_token_env_var.is_none() && !has_authorization_header(&headers) {
+        match load_mcp_oauth_access_token(
+            server_name,
+            url,
+            state.mcp_config.mcp_oauth_credentials_store_mode,
+            &state.mcp_config.codex_home,
+        )? {
+            Some(token) => {
+                insert_header(
+                    &mut headers,
+                    "Authorization",
+                    match secret_mode {
+                        SecretMode::Redacted => "Bearer <redacted>".to_string(),
+                        SecretMode::Revealed => format!("Bearer {}", token.access_token),
+                    },
+                );
+                warnings.push(
+                    "Token audience and API compatibility are provider-specific.".to_string(),
+                );
+                oauth_metadata = Some((token.expires_at, token.scopes));
+            }
+            None => {
+                warnings.push(
+                    "No stored MCP OAuth access token was found for this server and URL."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    let has_oauth_token = oauth_metadata.is_some();
+    let (expires_at, scopes) = oauth_metadata.unwrap_or((None, Vec::new()));
+    let source = auth_source(
+        is_codex_runtime,
+        bearer_token_env_var.is_some(),
+        has_oauth_token
+            || (bearer_token_env_var.is_none() && !static_headers_present && !env_headers_present),
+        static_headers_present,
+        env_headers_present,
+    );
+
+    Ok(AuthReport {
+        server: server_name.to_string(),
+        transport: "streamable_http".to_string(),
+        url: url.clone(),
+        source: source.to_string(),
+        headers,
+        bearer_token_env_var: bearer_token_env_var.clone(),
+        env_http_headers: env_header_names,
+        store_mode: (source == "mcp_oauth").then(|| {
+            oauth_store_mode_to_wire(state.mcp_config.mcp_oauth_credentials_store_mode).to_string()
+        }),
+        expires_at: expires_at.and_then(format_millis_as_rfc3339),
+        scopes,
+        warnings,
+    })
+}
+
+fn auth_source(
+    codex_runtime: bool,
+    has_bearer_env: bool,
+    uses_oauth_path: bool,
+    has_static_headers: bool,
+    has_env_headers: bool,
+) -> &'static str {
+    if codex_runtime {
+        "codex_runtime"
+    } else if has_bearer_env {
+        "bearer_token_env_var"
+    } else if uses_oauth_path {
+        "mcp_oauth"
+    } else if has_env_headers && !has_static_headers {
+        "env_http_headers"
+    } else if has_static_headers {
+        "http_headers"
+    } else {
+        "none"
+    }
+}
+
+fn sorted_headers(headers: &HashMap<String, String>) -> Vec<(&str, &str)> {
+    let mut pairs = headers
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect::<Vec<_>>();
+    pairs.sort_by(|left, right| left.0.cmp(right.0));
+    pairs
+}
+
+#[derive(Clone, Copy)]
+enum HeaderValueKind {
+    Static,
+    Env,
+}
+
+fn header_value_for_output(
+    name: &str,
+    value: &str,
+    secret_mode: SecretMode,
+    kind: HeaderValueKind,
+) -> String {
+    match secret_mode {
+        SecretMode::Revealed => value.to_string(),
+        SecretMode::Redacted => match kind {
+            HeaderValueKind::Env => "<redacted>".to_string(),
+            HeaderValueKind::Static if is_secret_like_header(name) => "<redacted>".to_string(),
+            HeaderValueKind::Static => value.to_string(),
+        },
+    }
+}
+
+fn is_secret_like_header(name: &str) -> bool {
+    let normalized = name.to_ascii_lowercase();
+    normalized == "authorization"
+        || normalized == "proxy-authorization"
+        || normalized == "cookie"
+        || normalized == "set-cookie"
+        || normalized.contains("token")
+        || normalized.contains("secret")
+        || normalized.contains("api-key")
+        || normalized.ends_with("-key")
+        || normalized == "x-api-key"
+}
+
+fn insert_header(headers: &mut BTreeMap<String, String>, name: &str, value: String) {
+    if let Some(existing_name) = headers
+        .keys()
+        .find(|existing| existing.eq_ignore_ascii_case(name))
+        .cloned()
+    {
+        headers.remove(&existing_name);
+    }
+    headers.insert(name.to_string(), value);
+}
+
+fn has_authorization_header(headers: &BTreeMap<String, String>) -> bool {
+    headers
+        .keys()
+        .any(|name| name.eq_ignore_ascii_case("authorization"))
+}
+
+fn oauth_store_mode_to_wire(mode: OAuthCredentialsStoreMode) -> &'static str {
+    match mode {
+        OAuthCredentialsStoreMode::Auto => "auto",
+        OAuthCredentialsStoreMode::File => "file",
+        OAuthCredentialsStoreMode::Keyring => "keyring",
+    }
+}
+
+// Codex's upstream MCP OAuth loader is crate-private in codex-rmcp-client at
+// the pinned revision. Keep this reader narrow: it mirrors the store key and
+// reads only the stored access-token metadata needed for explicit auth export.
+// Refresh tokens are intentionally not represented in the output model.
+fn load_mcp_oauth_access_token(
+    server_name: &str,
+    url: &str,
+    store_mode: OAuthCredentialsStoreMode,
+    codex_home: &Path,
+) -> Result<Option<OAuthAccessToken>> {
+    match store_mode {
+        OAuthCredentialsStoreMode::Auto => {
+            match load_mcp_oauth_access_token_from_keyring(server_name, url) {
+                Ok(Some(token)) => Ok(Some(token)),
+                Ok(None) => load_mcp_oauth_access_token_from_file(server_name, url, codex_home),
+                Err(keyring_error) => {
+                    load_mcp_oauth_access_token_from_file(server_name, url, codex_home)
+                        .with_context(|| {
+                            format!("failed to read OAuth tokens from keyring: {keyring_error}")
+                        })
+                }
+            }
+        }
+        OAuthCredentialsStoreMode::File => {
+            load_mcp_oauth_access_token_from_file(server_name, url, codex_home)
+        }
+        OAuthCredentialsStoreMode::Keyring => {
+            load_mcp_oauth_access_token_from_keyring(server_name, url)
+                .with_context(|| "failed to read OAuth tokens from keyring".to_string())
+        }
+    }
+}
+
+fn load_mcp_oauth_access_token_from_keyring(
+    server_name: &str,
+    url: &str,
+) -> Result<Option<OAuthAccessToken>> {
+    let key = mcp_oauth_store_key(server_name, url)?;
+    let store = DefaultKeyringStore;
+    let Some(serialized) = store
+        .load("Codex MCP Credentials", &key)
+        .map_err(|error| anyhow!("{error}"))?
+    else {
+        return Ok(None);
+    };
+    let stored: StoredOAuthTokensWire = serde_json::from_str(&serialized)
+        .context("failed to deserialize OAuth tokens from keyring")?;
+    oauth_access_token_from_stored_wire(stored)
+}
+
+fn load_mcp_oauth_access_token_from_file(
+    server_name: &str,
+    url: &str,
+    codex_home: &Path,
+) -> Result<Option<OAuthAccessToken>> {
+    let path = codex_home.join(".credentials.json");
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read credentials file at {}", path.display()));
+        }
+    };
+    let store: BTreeMap<String, FallbackTokenEntry> = serde_json::from_str(&contents)
+        .with_context(|| format!("failed to parse credentials file at {}", path.display()))?;
+    let expected_key = mcp_oauth_store_key(server_name, url)?;
+    for entry in store.values() {
+        let entry_key = mcp_oauth_store_key(&entry.server_name, &entry.server_url)?;
+        if entry_key == expected_key {
+            if entry.access_token.is_empty() {
+                bail!("stored OAuth access token for MCP server '{server_name}' is empty");
+            }
+            return Ok(Some(OAuthAccessToken {
+                access_token: entry.access_token.clone(),
+                expires_at: entry.expires_at,
+                scopes: entry.scopes.clone(),
+            }));
+        }
+    }
+    Ok(None)
+}
+
+fn oauth_access_token_from_stored_wire(
+    stored: StoredOAuthTokensWire,
+) -> Result<Option<OAuthAccessToken>> {
+    let Some(access_token) = stored
+        .token_response
+        .get("access_token")
+        .and_then(Value::as_str)
+    else {
+        bail!(
+            "stored OAuth credentials for MCP server '{}' do not contain an access token",
+            stored.server_name
+        );
+    };
+    if access_token.is_empty() {
+        bail!(
+            "stored OAuth access token for MCP server '{}' is empty",
+            stored.server_name
+        );
+    }
+    Ok(Some(OAuthAccessToken {
+        access_token: access_token.to_string(),
+        expires_at: stored.expires_at,
+        scopes: oauth_scopes_from_token_response(&stored.token_response),
+    }))
+}
+
+fn oauth_scopes_from_token_response(token_response: &Value) -> Vec<String> {
+    match token_response.get("scope") {
+        Some(Value::String(scope)) => scope
+            .split_whitespace()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        Some(Value::Array(scopes)) => scopes
+            .iter()
+            .filter_map(Value::as_str)
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    }
+}
+
+fn mcp_oauth_store_key(server_name: &str, url: &str) -> Result<String> {
+    let mut payload = JsonMap::new();
+    payload.insert("type".to_string(), Value::String("http".to_string()));
+    payload.insert("url".to_string(), Value::String(url.to_string()));
+    payload.insert("headers".to_string(), Value::Object(JsonMap::new()));
+    let serialized = serde_json::to_string(&Value::Object(payload))
+        .context("failed to serialize MCP OAuth key payload")?;
+    let mut hasher = Sha256::new();
+    hasher.update(serialized.as_bytes());
+    let digest = hasher.finalize();
+    let hex = format!("{digest:x}");
+    Ok(format!("{server_name}|{}", &hex[..16]))
+}
+
+fn format_millis_as_rfc3339(millis: u64) -> Option<String> {
+    let millis = i64::try_from(millis).ok()?;
+    DateTime::<Utc>::from_timestamp_millis(millis)
+        .map(|datetime| datetime.to_rfc3339_opts(SecondsFormat::Secs, true))
+}
+
+fn print_auth_env(report: &AuthReport) -> Result<()> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    for (index, (name, value)) in report.headers.iter().enumerate() {
+        writeln!(
+            &mut handle,
+            "export CXPORTER_HEADER_{index}_NAME={}",
+            shell_single_quote(name)
+        )?;
+        writeln!(
+            &mut handle,
+            "export CXPORTER_HEADER_{index}_VALUE={}",
+            shell_single_quote(value)
+        )?;
+    }
+    Ok(())
+}
+
+fn print_auth_curl(report: &AuthReport) -> Result<()> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    write!(&mut handle, "curl")?;
+    for (name, value) in &report.headers {
+        write!(
+            &mut handle,
+            " -H {}",
+            shell_single_quote(&format!("{name}: {value}"))
+        )?;
+    }
+    writeln!(&mut handle, " {}", shell_single_quote(&report.url))?;
+    Ok(())
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 async fn shutdown(mut bundle: ManagerBundle) {

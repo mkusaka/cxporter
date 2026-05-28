@@ -6,8 +6,10 @@ It links only to the Codex Rust crates needed for config loading, login state,
 and MCP transport. The Codex source tree is not vendored; Cargo resolves the
 pinned git dependencies. Codex still owns all authentication, including
 ChatGPT/Codex auth, configured MCP OAuth tokens, Agent Identity request signing,
-and internal `codex_apps` connector access. `cxporter` does not read tokens or
-implement auth flows, and it does not create Codex LLM threads for tool calls.
+and internal `codex_apps` connector access. `cxporter` does not implement auth
+flows, and it does not create Codex LLM threads for tool calls. The only command
+that reads and prints token/header values is the explicit, opt-in
+`auth export --reveal` path described below.
 
 ## Setup
 
@@ -23,6 +25,18 @@ consistently:
 npx skills add . --skill cxporter-mcp -y
 ```
 
+## Dependency hygiene
+
+Use `cargo-shear` to inspect unused or misplaced Cargo dependencies:
+
+```bash
+cargo install cargo-shear --version 1.12.4 --locked
+cargo shear --locked
+```
+
+Review findings before running `cargo shear --fix`. The CI `shear` job is
+currently non-blocking while the project evaluates the check.
+
 ## Usage
 
 ```bash
@@ -34,6 +48,9 @@ cargo run -- schema codex_apps github_fetch_pr
 cargo run -- call codex_apps <tool_name> '{"query":"hello"}'
 cargo run -- call codex_apps <tool_name> --args-file args.json
 cargo run -- batch --server codex_apps --input calls.jsonl --concurrency 1 --retry 3
+cargo run -- auth inspect datadog --format json
+cargo run -- auth export datadog --format json --reveal
+cargo run -- auth export datadog --format curl --reveal
 cargo run -- serve --server codex_apps
 ```
 
@@ -69,6 +86,12 @@ launch Codex hidden helper modes.
   manager.
 - `apps`: lists accessible Codex apps/connectors discovered from `codex_apps`
   tools.
+- `auth inspect`: inspects the auth source for one HTTP MCP server without
+  revealing secret values. It reports metadata such as `source`, `url`, header
+  names, env var names, OAuth expiry, and OAuth scopes when available.
+- `auth export`: exports HTTP auth headers for one MCP server. This command
+  refuses to run without `--reveal` because it prints secret header values.
+  Supported formats are `json`, `env`, and `curl`.
 - `serve`: runs a stdio MCP server that exports the currently available
   Codex-authenticated MCP tools as its own tools.
 
@@ -140,3 +163,45 @@ acceptable.
 ```bash
 cargo run -- batch --server codex_apps --input calls.jsonl --concurrency 1 --retry 3 --retry-delay-ms 500
 ```
+
+## Auth inspection and export
+
+`auth inspect` and `auth export` are for debugging the exact HTTP auth headers
+Codex would attach to a configured MCP server. They support streamable HTTP MCP
+servers only. Stdio MCP servers are reported as unsupported.
+
+`inspect` never reveals token/header values:
+
+```bash
+cxporter auth inspect datadog --format json
+```
+
+`export` prints secret values only with `--reveal`:
+
+```bash
+cxporter auth export datadog --format json --reveal
+cxporter auth export datadog --format env --reveal
+cxporter auth export datadog --format curl --reveal
+```
+
+Supported auth sources:
+
+- `bearer_token_env_var`: `inspect` reports the env var name; `export` resolves
+  it and emits `Authorization: Bearer <value>`.
+- `http_headers`: static config headers. `inspect` masks secret-like header
+  names such as `Authorization`, `Cookie`, `X-Api-Key`, `*-Token`, and
+  `*-Secret`.
+- `env_http_headers`: `inspect` reports header-to-env-var mapping; `export`
+  resolves current env var values into headers.
+- `mcp_oauth`: reads Codex MCP OAuth stored access tokens from the configured
+  `mcp_oauth_credentials_store` mode (`auto`, `file`, or `keyring`) and emits
+  an `Authorization` header. Refresh tokens are never output.
+- `codex_runtime`: `codex_apps` auth is injected by the Codex runtime and is
+  not a provider API token. `inspect` reports a warning; `export` is
+  unsupported.
+
+OAuth note: the upstream Codex OAuth token loader is not public at the pinned
+revision, so `cxporter` mirrors only the minimal store key and access-token
+fields needed for inspection/export. This intentionally avoids refresh-token
+handling and does not implement OAuth login or refresh flows. Whether an MCP
+OAuth access token works against a provider's normal API is provider-specific.

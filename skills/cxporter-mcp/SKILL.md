@@ -1,6 +1,6 @@
 ---
 name: cxporter-mcp
-description: Use when Codex needs to list, inspect, or directly call MCP servers through the local cxporter CLI using the user's existing Codex sign-in/auth. Covers registered MCP servers, internal codex_apps connectors/apps, tool schemas, resources, and direct tool calls without implementing OAuth, token handling, or Codex LLM threads.
+description: Use when Codex needs to list, inspect, or directly call MCP servers through the local cxporter CLI using the user's existing Codex sign-in/auth. Covers registered MCP servers, internal codex_apps connectors/apps, tool schemas, resources, direct tool calls, and guarded MCP HTTP auth inspection/export without implementing OAuth flows or Codex LLM threads.
 ---
 
 # cxporter MCP
@@ -12,6 +12,10 @@ Use `cxporter` to operate MCP servers through Codex-owned config and auth. Treat
 tools, shows schemas, and calls tools without creating a Codex LLM thread.
 It can also run as a stdio MCP server that re-exports those downstream tools
 with stable namespace-style names.
+
+`auth inspect` and `auth export --reveal` are the only token/header inspection
+exceptions. Use them only when the user explicitly asks to inspect or export MCP
+HTTP auth material. `inspect` redacts secrets; `export` requires `--reveal`.
 
 ## Invocation
 
@@ -129,6 +133,27 @@ For write-heavy connector batches, keep `--concurrency 1` unless every selected
 tool advertises parallel call support. Use `--force-parallel` only when duplicate
 or overlapping side effects are acceptable.
 
+Inspect MCP HTTP auth metadata without revealing secret values:
+
+```bash
+skills/cxporter-mcp/scripts/cxporter.sh auth inspect <server> --format json
+```
+
+Export MCP HTTP auth headers only when the user explicitly needs secret values
+and has accepted that they will be printed to stdout:
+
+```bash
+skills/cxporter-mcp/scripts/cxporter.sh auth export <server> --format json --reveal
+skills/cxporter-mcp/scripts/cxporter.sh auth export <server> --format env --reveal
+skills/cxporter-mcp/scripts/cxporter.sh auth export <server> --format curl --reveal
+```
+
+Auth export supports HTTP MCP auth sources such as `bearer_token_env_var`,
+`http_headers`, `env_http_headers`, and stored MCP OAuth access tokens. It does
+not support stdio MCP servers or `codex_apps` runtime auth export. Refresh
+tokens must never be requested, printed, logged, copied into fixtures, or stored
+in notes.
+
 Run as an MCP server:
 
 ```bash
@@ -176,8 +201,14 @@ claude mcp get cxporter
 
 ## Guardrails
 
-- Do not read, print, transform, or store Codex tokens.
-- Do not implement OAuth, bearer-token plumbing, or custom connector auth.
+- Do not read, print, transform, or store Codex tokens except through the
+  explicit `auth inspect` / `auth export --reveal` commands above.
+- Prefer `auth inspect`; use `auth export --reveal` only when the user
+  explicitly needs actual header values. Never run it speculatively.
+- Do not print refresh tokens. `cxporter auth export` is allowed to reveal only
+  access-token/header values needed for HTTP requests.
+- Do not implement OAuth login, OAuth refresh, bearer-token plumbing, or custom
+  connector auth outside cxporter's existing guarded commands.
 - Confirm before using mutating tools such as send, create, update, delete,
   merge, transition, archive, or label operations.
 - Prefer `schema` over guessing argument names. Connector schemas can differ
