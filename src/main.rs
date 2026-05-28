@@ -8,7 +8,6 @@ use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Read;
 use std::io::Write;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,24 +20,13 @@ use async_channel::unbounded;
 use clap::Parser;
 use clap::Subcommand;
 use clap::ValueEnum;
-use codex_config::CloudRequirementsLoader;
-use codex_config::ConfigLoadOptions;
-use codex_config::Constrained;
-use codex_config::LoaderOverrides;
-use codex_config::NoopThreadConfigLoader;
-use codex_config::config_toml::ConfigToml;
-use codex_config::loader::load_config_layers_state;
-use codex_config::types::AuthCredentialsStoreMode;
+use codex_core::config::Config;
+use codex_core::config::ConfigBuilder;
+use codex_core::config::ConfigOverrides;
+use codex_core_plugins::PluginsManager;
 use codex_exec_server::EnvironmentManager;
 use codex_exec_server::ExecServerRuntimePaths;
-use codex_exec_server::LOCAL_FS;
-use codex_features::Feature;
-use codex_features::FeatureConfigSource;
-use codex_features::FeatureOverrides;
-use codex_features::FeatureToml;
-use codex_features::Features;
 use codex_login::AuthManager;
-use codex_login::AuthManagerConfig;
 use codex_login::CodexAuth;
 use codex_mcp::McpConfig;
 use codex_mcp::McpConnectionManager;
@@ -50,18 +38,13 @@ use codex_mcp::effective_mcp_servers;
 use codex_mcp::host_owned_codex_apps_enabled;
 use codex_mcp::tool_plugin_provenance;
 use codex_protocol::models::PermissionProfile;
-use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::McpAuthStatus;
-use codex_utils_absolute_path::AbsolutePathBufGuard;
 use codex_utils_cli::CliConfigOverrides;
-use codex_utils_home_dir::find_codex_home;
 use rmcp::ServerHandler;
 use rmcp::ServiceExt;
 use rmcp::model::CallToolRequestParams;
 use rmcp::model::CallToolResult as RmcpCallToolResult;
-use rmcp::model::ElicitationCapability;
 use rmcp::model::ErrorData as McpError;
-use rmcp::model::FormElicitationCapability;
 use rmcp::model::Implementation;
 use rmcp::model::ListToolsResult;
 use rmcp::model::PaginatedRequestParams;
@@ -69,7 +52,6 @@ use rmcp::model::ReadResourceRequestParams;
 use rmcp::model::ServerCapabilities;
 use rmcp::model::ServerInfo;
 use rmcp::model::Tool;
-use rmcp::model::UrlElicitationCapability;
 use rmcp::service::RequestContext;
 use rmcp::service::RoleServer;
 use serde::Deserialize;
@@ -240,35 +222,6 @@ struct CodexState {
     mcp_config: McpConfig,
     auth: Option<CodexAuth>,
     runtime_context: McpRuntimeContext,
-}
-
-#[derive(Clone, Debug)]
-struct RuntimeConfig {
-    codex_home: PathBuf,
-    cwd: PathBuf,
-    codex_self_exe: Option<PathBuf>,
-    codex_linux_sandbox_exe: Option<PathBuf>,
-    cli_auth_credentials_store_mode: AuthCredentialsStoreMode,
-    forced_chatgpt_workspace_id: Option<Vec<String>>,
-    chatgpt_base_url: String,
-}
-
-impl AuthManagerConfig for RuntimeConfig {
-    fn codex_home(&self) -> PathBuf {
-        self.codex_home.clone()
-    }
-
-    fn cli_auth_credentials_store_mode(&self) -> AuthCredentialsStoreMode {
-        self.cli_auth_credentials_store_mode
-    }
-
-    fn forced_chatgpt_workspace_id(&self) -> Option<Vec<String>> {
-        self.forced_chatgpt_workspace_id.clone()
-    }
-
-    fn chatgpt_base_url(&self) -> String {
-        self.chatgpt_base_url.clone()
-    }
 }
 
 struct ManagerBundle {
@@ -520,113 +473,28 @@ async fn load_state(config_overrides: &CliConfigOverrides) -> Result<CodexState>
     let overrides = config_overrides
         .parse_overrides()
         .map_err(|error| anyhow!("failed to parse -c/--config override: {error}"))?;
-    let codex_home = find_codex_home().context("failed to resolve Codex home")?;
-    let config_layer_stack = load_config_layers_state(
-        LOCAL_FS.as_ref(),
-        &codex_home,
-        /*cwd*/ None,
-        &overrides,
-        ConfigLoadOptions {
-            loader_overrides: LoaderOverrides::default(),
-            strict_config: false,
-        },
-        CloudRequirementsLoader::default(),
-        &NoopThreadConfigLoader,
-    )
-    .await
-    .context("failed to load Codex config layers")?;
-    let config_toml = deserialize_config_toml(config_layer_stack.effective_config(), &codex_home)?;
-    let runtime_config = runtime_config_from_toml(&config_toml, codex_home.to_path_buf())?;
-    let mcp_config = mcp_config_from_toml(&config_toml, &runtime_config);
+    let config = ConfigBuilder::default()
+        .cli_overrides(overrides)
+        .harness_overrides(ConfigOverrides {
+            codex_self_exe: resolve_codex_self_exe(),
+            ..Default::default()
+        })
+        .strict_config(false)
+        .build()
+        .await
+        .context("failed to load Codex config")?;
+    let plugins_manager = PluginsManager::new(config.codex_home.to_path_buf());
+    let mcp_config = config.to_mcp_config(&plugins_manager).await;
     let auth_manager =
-        AuthManager::shared_from_config(&runtime_config, /*enable_codex_api_key_env*/ false).await;
+        AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false).await;
     let auth = auth_manager.auth().await;
-    let runtime_context = load_runtime_context(&runtime_config).await?;
+    let runtime_context = load_runtime_context(&config).await?;
 
     Ok(CodexState {
         mcp_config,
         auth,
         runtime_context,
     })
-}
-
-fn deserialize_config_toml(
-    root_value: codex_config::TomlValue,
-    codex_home: &Path,
-) -> Result<ConfigToml> {
-    let _guard = AbsolutePathBufGuard::new(codex_home);
-    root_value
-        .try_into()
-        .context("failed to deserialize Codex config.toml")
-}
-
-fn runtime_config_from_toml(config: &ConfigToml, codex_home: PathBuf) -> Result<RuntimeConfig> {
-    let cwd = env::current_dir().context("failed to resolve current working directory")?;
-    Ok(RuntimeConfig {
-        codex_home,
-        cwd,
-        codex_self_exe: resolve_codex_self_exe(),
-        codex_linux_sandbox_exe: None,
-        cli_auth_credentials_store_mode: config.cli_auth_credentials_store.unwrap_or_default(),
-        forced_chatgpt_workspace_id: config
-            .forced_chatgpt_workspace_id
-            .clone()
-            .map(codex_config::config_toml::ForcedChatgptWorkspaceIds::into_vec),
-        chatgpt_base_url: config
-            .chatgpt_base_url
-            .clone()
-            .unwrap_or_else(|| "https://chatgpt.com/backend-api/".to_string()),
-    })
-}
-
-fn mcp_config_from_toml(config: &ConfigToml, runtime: &RuntimeConfig) -> McpConfig {
-    let features = Features::from_sources(
-        FeatureConfigSource {
-            features: config.features.as_ref(),
-            experimental_use_unified_exec_tool: config.experimental_use_unified_exec_tool,
-        },
-        FeatureConfigSource::default(),
-        FeatureOverrides::default(),
-    );
-
-    McpConfig {
-        chatgpt_base_url: runtime.chatgpt_base_url.clone(),
-        apps_mcp_path_override: apps_mcp_path_override(config),
-        apps_mcp_product_sku: config.apps_mcp_product_sku.clone(),
-        codex_home: runtime.codex_home.clone(),
-        mcp_oauth_credentials_store_mode: config.mcp_oauth_credentials_store.unwrap_or_default(),
-        mcp_oauth_callback_port: config.mcp_oauth_callback_port,
-        mcp_oauth_callback_url: config.mcp_oauth_callback_url.clone(),
-        skill_mcp_dependency_install_enabled: features.enabled(Feature::SkillMcpDependencyInstall),
-        approval_policy: Constrained::allow_any(
-            config.approval_policy.unwrap_or(AskForApproval::OnRequest),
-        ),
-        codex_linux_sandbox_exe: runtime.codex_linux_sandbox_exe.clone(),
-        use_legacy_landlock: features.use_legacy_landlock(),
-        apps_enabled: features.enabled(Feature::Apps),
-        client_elicitation_capability: client_elicitation_capability(&features),
-        configured_mcp_servers: config.mcp_servers.clone(),
-        plugin_ids_by_mcp_server_name: HashMap::new(),
-        plugin_capability_summaries: Vec::new(),
-    }
-}
-
-fn apps_mcp_path_override(config: &ConfigToml) -> Option<String> {
-    match config.features.as_ref()?.apps_mcp_path_override.as_ref()? {
-        FeatureToml::Enabled(_) => None,
-        FeatureToml::Config(config) => config.path.clone(),
-    }
-}
-
-fn client_elicitation_capability(features: &Features) -> ElicitationCapability {
-    if features.enabled(Feature::AuthElicitation) {
-        ElicitationCapability {
-            form: Some(FormElicitationCapability::default()),
-            url: Some(UrlElicitationCapability::default()),
-        }
-    } else {
-        ElicitationCapability::default()
-    }
 }
 
 fn resolve_codex_self_exe() -> Option<PathBuf> {
@@ -643,17 +511,19 @@ fn find_on_path(binary_name: &str) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-async fn load_runtime_context(config: &RuntimeConfig) -> Result<McpRuntimeContext> {
+async fn load_runtime_context(config: &Config) -> Result<McpRuntimeContext> {
     let local_runtime_paths = ExecServerRuntimePaths::from_optional_paths(
         config.codex_self_exe.clone(),
         config.codex_linux_sandbox_exe.clone(),
     )?;
-    let environment_manager =
-        EnvironmentManager::from_codex_home(config.codex_home.clone(), Some(local_runtime_paths))
-            .await?;
+    let environment_manager = EnvironmentManager::from_codex_home(
+        config.codex_home.to_path_buf(),
+        Some(local_runtime_paths),
+    )
+    .await?;
     Ok(McpRuntimeContext::new(
         Arc::new(environment_manager),
-        config.cwd.clone(),
+        config.cwd.to_path_buf(),
     ))
 }
 

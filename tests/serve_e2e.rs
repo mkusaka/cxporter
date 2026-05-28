@@ -117,6 +117,95 @@ fn serve_exports_and_calls_configured_mcp_server_tools() -> Result<()> {
 }
 
 #[test]
+fn list_includes_enabled_plugin_mcp_server() -> Result<()> {
+    let temp = TempDir::new("cxporter-plugin-list-e2e")?;
+    let fake_server = temp.path().join("plugin_fake_mcp_server.sh");
+    write_named_fake_mcp_server(&fake_server, "plugin_tool")?;
+    write_plugin_codex_config(temp.path(), "fixture@local")?;
+    write_plugin_fixture(
+        temp.path(),
+        "local",
+        "fixture",
+        "0.1.0",
+        "plugin-fake",
+        &fake_server,
+        None,
+    )?;
+
+    let output = run_cxporter(temp.path(), &["list", "--server", "plugin-fake"], None)?;
+    assert!(
+        output.status.success(),
+        "cxporter failed: {}",
+        output.stderr
+    );
+    let value: Value = serde_json::from_str(&output.stdout).context("parse list JSON")?;
+    let tools = value[0]["tools"].as_object().context("tools object")?;
+    assert!(tools.contains_key("plugin_tool"));
+
+    Ok(())
+}
+
+#[test]
+fn user_defined_mcp_server_shadows_plugin_mcp_server() -> Result<()> {
+    let temp = TempDir::new("cxporter-plugin-shadow-e2e")?;
+    let user_server = temp.path().join("user_fake_mcp_server.sh");
+    let plugin_server = temp.path().join("plugin_fake_mcp_server.sh");
+    write_named_fake_mcp_server(&user_server, "user_tool")?;
+    write_named_fake_mcp_server(&plugin_server, "plugin_tool")?;
+    write_shadow_codex_config(temp.path(), "shadow@local", "same-name", &user_server)?;
+    write_plugin_fixture(
+        temp.path(),
+        "local",
+        "shadow",
+        "0.1.0",
+        "same-name",
+        &plugin_server,
+        None,
+    )?;
+
+    let output = run_cxporter(temp.path(), &["list", "--server", "same-name"], None)?;
+    assert!(
+        output.status.success(),
+        "cxporter failed: {}",
+        output.stderr
+    );
+    let value: Value = serde_json::from_str(&output.stdout).context("parse list JSON")?;
+    let tools = value[0]["tools"].as_object().context("tools object")?;
+    assert!(tools.contains_key("user_tool"));
+    assert!(!tools.contains_key("plugin_tool"));
+
+    Ok(())
+}
+
+#[test]
+fn plugin_relative_cwd_is_resolved_from_plugin_root() -> Result<()> {
+    let temp = TempDir::new("cxporter-plugin-cwd-e2e")?;
+    write_plugin_codex_config(temp.path(), "cwd-fixture@local")?;
+    let plugin_root = write_plugin_fixture(
+        temp.path(),
+        "local",
+        "cwd-fixture",
+        "0.1.0",
+        "cwd-plugin",
+        Path::new("./fake_mcp_server.sh"),
+        Some("."),
+    )?;
+    write_named_fake_mcp_server(&plugin_root.join("fake_mcp_server.sh"), "cwd_tool")?;
+
+    let output = run_cxporter(temp.path(), &["list", "--server", "cwd-plugin"], None)?;
+    assert!(
+        output.status.success(),
+        "cxporter failed: {}",
+        output.stderr
+    );
+    let value: Value = serde_json::from_str(&output.stdout).context("parse list JSON")?;
+    let tools = value[0]["tools"].as_object().context("tools object")?;
+    assert!(tools.contains_key("cwd_tool"));
+
+    Ok(())
+}
+
+#[test]
 fn list_filters_tools_and_reports_exported_aliases() -> Result<()> {
     let temp = TempDir::new("cxporter-list-e2e")?;
     let fake_server = temp.path().join("fake_mcp_server.sh");
@@ -513,6 +602,90 @@ tool_timeout_sec = 5.0
     fs::write(codex_home.join("config.toml"), config).context("write Codex config.toml")
 }
 
+fn write_plugin_codex_config(codex_home: &Path, plugin_config_name: &str) -> Result<()> {
+    let config = format!(
+        r#"approval_policy = "never"
+
+[plugins."{}"]
+enabled = true
+"#,
+        escape_toml_string(plugin_config_name),
+    );
+    fs::write(codex_home.join("config.toml"), config).context("write Codex config.toml")
+}
+
+fn write_shadow_codex_config(
+    codex_home: &Path,
+    plugin_config_name: &str,
+    server_name: &str,
+    user_server: &Path,
+) -> Result<()> {
+    let config = format!(
+        r#"approval_policy = "never"
+
+[mcp_servers.{}]
+command = "{}"
+startup_timeout_sec = 5.0
+tool_timeout_sec = 5.0
+
+[plugins."{}"]
+enabled = true
+"#,
+        server_name,
+        escape_toml_string(&user_server.to_string_lossy()),
+        escape_toml_string(plugin_config_name),
+    );
+    fs::write(codex_home.join("config.toml"), config).context("write Codex config.toml")
+}
+
+fn write_plugin_fixture(
+    codex_home: &Path,
+    marketplace: &str,
+    plugin_name: &str,
+    version: &str,
+    server_name: &str,
+    command: &Path,
+    cwd: Option<&str>,
+) -> Result<PathBuf> {
+    let plugin_root = codex_home
+        .join("plugins/cache")
+        .join(marketplace)
+        .join(plugin_name)
+        .join(version);
+    fs::create_dir_all(plugin_root.join(".codex-plugin"))
+        .with_context(|| format!("create plugin root {}", plugin_root.display()))?;
+    fs::write(
+        plugin_root.join(".codex-plugin/plugin.json"),
+        serde_json::to_string(&json!({
+            "name": plugin_name,
+            "version": version,
+            "mcpServers": "./.mcp.json"
+        }))?,
+    )
+    .context("write plugin manifest")?;
+
+    let mut server = json!({
+        "command": command.to_string_lossy(),
+        "args": [],
+        "startup_timeout_sec": 5.0,
+        "tool_timeout_sec": 5.0
+    });
+    if let Some(cwd) = cwd {
+        server["cwd"] = Value::String(cwd.to_string());
+    }
+    let mut servers = serde_json::Map::new();
+    servers.insert(server_name.to_string(), server);
+    fs::write(
+        plugin_root.join(".mcp.json"),
+        serde_json::to_string(&json!({
+            "mcpServers": Value::Object(servers)
+        }))?,
+    )
+    .context("write plugin MCP config")?;
+
+    Ok(plugin_root)
+}
+
 fn write_fake_mcp_server(path: &Path) -> Result<()> {
     fs::write(
         path,
@@ -532,6 +705,37 @@ while IFS= read -r line; do
   esac
 done
 "#,
+    )
+    .with_context(|| format!("write fake MCP server {}", path.display()))?;
+
+    let mut permissions = fs::metadata(path)
+        .with_context(|| format!("stat fake MCP server {}", path.display()))?
+        .permissions();
+    use std::os::unix::fs::PermissionsExt as _;
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions)
+        .with_context(|| format!("chmod fake MCP server {}", path.display()))
+}
+
+fn write_named_fake_mcp_server(path: &Path, tool_name: &str) -> Result<()> {
+    fs::write(
+        path,
+        format!(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*|*'"method": "initialize"'*)
+      printf '{{"jsonrpc":"2.0","id":%s,"result":{{"protocolVersion":"2025-06-18","capabilities":{{"tools":{{}}}},"serverInfo":{{"name":"fake-mcp","version":"0.0.0"}}}}}}\n' "$id"
+      ;;
+    *'"method":"tools/list"'*|*'"method": "tools/list"'*)
+      printf '{{"jsonrpc":"2.0","id":%s,"result":{{"tools":[{{"name":"{tool_name}","description":"Fixture tool","inputSchema":{{"type":"object","properties":{{}}}}}}]}}}}\n' "$id"
+      ;;
+  esac
+done
+"#,
+            tool_name = tool_name
+        ),
     )
     .with_context(|| format!("write fake MCP server {}", path.display()))?;
 
