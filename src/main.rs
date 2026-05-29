@@ -707,6 +707,7 @@ async fn manager_bundle_for_servers(
         state.mcp_config.codex_home.clone(),
         codex_apps_tools_cache_key(state.auth.as_ref()),
         host_owned_codex_apps_enabled(&state.mcp_config, state.auth.as_ref()),
+        state.mcp_config.prefix_mcp_tool_names,
         state.mcp_config.client_elicitation_capability.clone(),
         tool_plugin_provenance(&state.mcp_config),
         state.auth.as_ref(),
@@ -842,25 +843,17 @@ fn effective_supports_parallel_tool_calls(tool_info: &ToolInfo) -> bool {
 
 impl ServerHandler for CxporterMcpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            server_info: Implementation {
-                name: "cxporter".to_string(),
-                title: Some("cxporter".to_string()),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                description: Some(
-                    "Proxy for Codex-authenticated MCP tools and codex_apps connectors."
-                        .to_string(),
-                ),
-                icons: None,
-                website_url: None,
-            },
-            instructions: Some(
-                "Tools are exposed as <mcp_server>.<connector_or_namespace>.<tool>, for example codex_apps.github.fetch_pr."
-                    .to_string(),
-            ),
-            ..ServerInfo::default()
-        }
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(
+                Implementation::new("cxporter", env!("CARGO_PKG_VERSION"))
+                    .with_title("cxporter")
+                    .with_description(
+                        "Proxy for Codex-authenticated MCP tools and codex_apps connectors.",
+                    ),
+            )
+            .with_instructions(
+                "Tools are exposed as <mcp_server>.<connector_or_namespace>.<tool>, for example codex_apps.github.fetch_pr.",
+            )
     }
 
     async fn list_tools(
@@ -1111,13 +1104,7 @@ async fn read_resource(
     let bundle = manager_bundle(state, Some(server)).await?;
     let result = bundle
         .manager
-        .read_resource(
-            server,
-            ReadResourceRequestParams {
-                meta: None,
-                uri: uri.to_string(),
-            },
-        )
+        .read_resource(server, ReadResourceRequestParams::new(uri.to_string()))
         .await;
     shutdown(bundle).await;
     result
@@ -1452,6 +1439,15 @@ fn inspect_auth(
                 warnings.push(
                     "Token audience and API compatibility are provider-specific.".to_string(),
                 );
+                if let Some(expires_at) = token.expires_at
+                    && is_token_expired(expires_at)
+                {
+                    warnings.push(format!(
+                        "Stored OAuth access token expired at {}; the provider will reject it with 401. Re-authenticate in Codex before use.",
+                        format_millis_as_rfc3339(expires_at)
+                            .unwrap_or_else(|| expires_at.to_string())
+                    ));
+                }
                 oauth_metadata = Some((token.expires_at, token.scopes));
             }
             None => {
@@ -1718,6 +1714,13 @@ fn mcp_oauth_store_key(server_name: &str, url: &str) -> Result<String> {
     let digest = hasher.finalize();
     let hex = format!("{digest:x}");
     Ok(format!("{server_name}|{}", &hex[..16]))
+}
+
+fn is_token_expired(expires_at_millis: u64) -> bool {
+    let now = Utc::now().timestamp_millis();
+    i64::try_from(expires_at_millis)
+        .map(|expires_at| expires_at <= now)
+        .unwrap_or(false)
 }
 
 fn format_millis_as_rfc3339(millis: u64) -> Option<String> {

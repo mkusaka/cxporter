@@ -37,6 +37,11 @@ cargo shear --locked
 Review findings before running `cargo shear --fix`. CI runs the same check with
 `--deny-warnings`.
 
+The `codex-*` crates are pinned to a thin fork of `openai/codex` (a one-line
+workspace version bump) rather than to upstream directly. See
+[docs/codex-fork-pin.md](docs/codex-fork-pin.md) for why this is needed and how
+to advance the pin.
+
 ## Usage
 
 ```bash
@@ -205,3 +210,12 @@ revision, so `cxporter` mirrors only the minimal store key and access-token
 fields needed for inspection/export. This intentionally avoids refresh-token
 handling and does not implement OAuth login or refresh flows. Whether an MCP
 OAuth access token works against a provider's normal API is provider-specific.
+If the stored access token is already expired, `inspect`/`export` add a warning
+(the provider will otherwise reject it with `401`).
+
+Store-mode note: `codex-core` coerces `keyring`/`auto` to `file` whenever its
+`CARGO_PKG_VERSION` is the local-dev sentinel `0.0.0`, which is what a plain git
+dependency reports. To keep `keyring`/`auto` usable (e.g. tokens stored in the
+macOS Keychain), the Codex crates are pinned to a thin fork of `openai/codex`
+whose only change is a non-zero workspace version. See the comment in
+`Cargo.toml` for how to advance the pin.

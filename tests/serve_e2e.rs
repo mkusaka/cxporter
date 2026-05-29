@@ -706,6 +706,15 @@ fn auth_export_oauth_present_reveals_only_access_token_when_requested() -> Resul
         value["scopes"].as_array().context("scopes array")?,
         &vec![json!("mcp_read"), json!("metrics_read")]
     );
+    assert!(
+        value["warnings"]
+            .as_array()
+            .context("warnings array")?
+            .iter()
+            .any(|warning| warning.as_str().unwrap_or("").contains("expired")),
+        "expired OAuth token should produce a warning: {}",
+        inspect.stdout
+    );
 
     let export = run_cxporter(
         temp.path(),
@@ -723,6 +732,38 @@ fn auth_export_oauth_present_reveals_only_access_token_when_requested() -> Resul
     assert_eq!(
         value["headers"]["Authorization"],
         format!("Bearer {access_token}")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn auth_inspect_does_not_coerce_auto_store_mode_to_file() -> Result<()> {
+    // Regression guard for the codex-core local-dev-build coercion: when
+    // CARGO_PKG_VERSION == "0.0.0", resolve_mcp_oauth_credentials_store_mode
+    // rewrites keyring/auto to "file", which made keychain-stored MCP tokens
+    // unreadable. We pin a fork whose workspace version is non-zero so the
+    // configured mode survives. "auto" is used (not "keyring") because Auto
+    // swallows keyring backend errors on headless CI by falling back to file.
+    let temp = TempDir::new("cxporter-auth-auto-store-e2e")?;
+    write_oauth_auth_config_with_store(temp.path(), "auto")?;
+
+    let inspect = run_cxporter(
+        temp.path(),
+        &["auth", "inspect", "datadog", "--format", "json"],
+        None,
+    )?;
+    assert!(
+        inspect.status.success(),
+        "cxporter failed: {}",
+        inspect.stderr
+    );
+    let value: Value = serde_json::from_str(&inspect.stdout).context("parse auth inspect JSON")?;
+    assert_eq!(value["source"], "mcp_oauth");
+    assert_eq!(
+        value["storeMode"], "auto",
+        "configured auto store mode must not be coerced to file: {}",
+        inspect.stdout
     );
 
     Ok(())
@@ -884,6 +925,20 @@ X-Api-Key = "static-secret-fixture"
 [mcp_servers.headers.env_http_headers]
 X-Env-Token = "HEADER_ENV_TOKEN"
 "#;
+    fs::write(codex_home.join("config.toml"), config).context("write Codex config.toml")
+}
+
+fn write_oauth_auth_config_with_store(codex_home: &Path, store: &str) -> Result<()> {
+    let config = format!(
+        r#"approval_policy = "never"
+mcp_oauth_credentials_store = "{store}"
+
+[mcp_servers.datadog]
+url = "https://mcp.datadoghq.invalid/api/unstable/mcp-server/mcp"
+startup_timeout_sec = 5.0
+tool_timeout_sec = 5.0
+"#
+    );
     fs::write(codex_home.join("config.toml"), config).context("write Codex config.toml")
 }
 
