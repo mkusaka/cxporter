@@ -1548,8 +1548,8 @@ checksum = "e9b18233253483ce2f65329a24072ec414db782531bdbb7d0bbc4bd2ce6b7e21"
 
 [[package]]
 name = "codex-agent-identity"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "base64",
@@ -1567,8 +1567,8 @@ dependencies = [
 
 [[package]]
 name = "codex-analytics"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-app-server-protocol",
  "codex-git-utils",
@@ -1586,8 +1586,8 @@ dependencies = [
 
 [[package]]
 name = "codex-api"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "async-channel",
  "async-trait",
@@ -1616,8 +1616,8 @@ dependencies = [
 
 [[package]]
 name = "codex-app-server-protocol"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "clap",
@@ -1640,8 +1640,8 @@ dependencies = [
 
 [[package]]
 name = "codex-apply-patch"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "codex-exec-server",
@@ -1655,8 +1655,8 @@ dependencies = [
 
 [[package]]
 name = "codex-async-utils"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "async-trait",
  "tokio",
@@ -1665,8 +1665,8 @@ dependencies = [
 
 [[package]]
 name = "codex-aws-auth"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -1679,8 +1679,8 @@ dependencies = [
 
 [[package]]
 name = "codex-client"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1705,11 +1705,9 @@ dependencies = [
 
 [[package]]
 name = "codex-code-mode"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
- "async-channel",
- "async-trait",
  "codex-protocol",
  "deno_core_icudata",
  "serde",
@@ -1722,13 +1720,13 @@ dependencies = [
 
 [[package]]
 name = "codex-collaboration-mode-templates"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 
 [[package]]
 name = "codex-config"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1772,8 +1770,8 @@ dependencies = [
 
 [[package]]
 name = "codex-connectors"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "codex-app-server-protocol",
@@ -1785,9 +1783,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-context-fragments"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
+dependencies = [
+ "codex-protocol",
+ "codex-utils-string",
+]
+
+[[package]]
 name = "codex-core"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1805,6 +1812,7 @@ dependencies = [
  "codex-code-mode",
  "codex-config",
  "codex-connectors",
+ "codex-context-fragments",
  "codex-core-plugins",
  "codex-core-skills",
  "codex-exec-server",
@@ -1824,6 +1832,7 @@ dependencies = [
  "codex-network-proxy",
  "codex-otel",
  "codex-plugin",
+ "codex-prompts",
  "codex-protocol",
  "codex-response-debug-context",
  "codex-rmcp-client",
@@ -1846,7 +1855,6 @@ dependencies = [
  "codex-utils-pty",
  "codex-utils-stream-parser",
  "codex-utils-string",
- "codex-utils-template",
  "codex-windows-sandbox",
  "csv",
  "dirs",
@@ -1885,8 +1893,8 @@ dependencies = [
 
 [[package]]
 name = "codex-core-plugins"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1906,6 +1914,7 @@ dependencies = [
  "codex-utils-plugins",
  "dirs",
  "flate2",
+ "indexmap 2.14.0",
  "reqwest 0.12.28",
  "semver",
  "serde",
@@ -1922,13 +1931,14 @@ dependencies = [
 
 [[package]]
 name = "codex-core-skills"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "codex-analytics",
  "codex-app-server-protocol",
  "codex-config",
+ "codex-context-fragments",
  "codex-exec-server",
  "codex-login",
  "codex-model-provider",
@@ -1952,8 +1962,8 @@ dependencies = [
 
 [[package]]
 name = "codex-exec-server"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -1966,6 +1976,7 @@ dependencies = [
  "codex-file-system",
  "codex-protocol",
  "codex-sandboxing",
+ "codex-shell-command",
  "codex-utils-absolute-path",
  "codex-utils-pty",
  "codex-utils-rustls-provider",
@@ -1985,8 +1996,8 @@ dependencies = [
 
 [[package]]
 name = "codex-execpolicy"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "clap",
@@ -2001,8 +2012,8 @@ dependencies = [
 
 [[package]]
 name = "codex-experimental-api-macros"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2011,18 +2022,19 @@ dependencies = [
 
 [[package]]
 name = "codex-extension-api"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "async-trait",
+ "codex-context-fragments",
  "codex-protocol",
  "codex-tools",
 ]
 
 [[package]]
 name = "codex-features"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-otel",
  "codex-protocol",
@@ -2034,8 +2046,8 @@ dependencies = [
 
 [[package]]
 name = "codex-feedback"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "codex-login",
@@ -2047,8 +2059,8 @@ dependencies = [
 
 [[package]]
 name = "codex-file-search"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "clap",
@@ -2062,8 +2074,8 @@ dependencies = [
 
 [[package]]
 name = "codex-file-system"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "async-trait",
  "codex-protocol",
@@ -2073,8 +2085,8 @@ dependencies = [
 
 [[package]]
 name = "codex-git-utils"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2097,8 +2109,8 @@ dependencies = [
 
 [[package]]
 name = "codex-hooks"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2119,8 +2131,8 @@ dependencies = [
 
 [[package]]
 name = "codex-install-context"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-utils-absolute-path",
  "codex-utils-home-dir",
@@ -2128,8 +2140,8 @@ dependencies = [
 
 [[package]]
 name = "codex-keyring-store"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "keyring",
  "tracing",
@@ -2137,8 +2149,8 @@ dependencies = [
 
 [[package]]
 name = "codex-login"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "async-trait",
  "base64",
@@ -2171,8 +2183,8 @@ dependencies = [
 
 [[package]]
 name = "codex-mcp"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2202,8 +2214,8 @@ dependencies = [
 
 [[package]]
 name = "codex-memories-read"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-protocol",
  "codex-shell-command",
@@ -2212,8 +2224,8 @@ dependencies = [
 
 [[package]]
 name = "codex-model-provider"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "async-trait",
  "codex-agent-identity",
@@ -2234,8 +2246,8 @@ dependencies = [
 
 [[package]]
 name = "codex-model-provider-info"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-api",
  "codex-app-server-protocol",
@@ -2247,8 +2259,8 @@ dependencies = [
 
 [[package]]
 name = "codex-models-manager"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2267,11 +2279,12 @@ dependencies = [
 
 [[package]]
 name = "codex-network-proxy"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64",
  "chrono",
  "clap",
  "codex-utils-absolute-path",
@@ -2286,8 +2299,10 @@ dependencies = [
  "rama-tcp",
  "rama-tls-rustls",
  "rama-unix",
+ "rustls-native-certs",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
  "time",
  "tokio",
@@ -2297,8 +2312,8 @@ dependencies = [
 
 [[package]]
 name = "codex-otel"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "chrono",
  "codex-api",
@@ -2329,8 +2344,8 @@ dependencies = [
 
 [[package]]
 name = "codex-plugin"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-config",
  "codex-utils-absolute-path",
@@ -2339,9 +2354,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-prompts"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
+dependencies = [
+ "anyhow",
+ "codex-context-fragments",
+ "codex-execpolicy",
+ "codex-git-utils",
+ "codex-protocol",
+ "codex-utils-absolute-path",
+ "codex-utils-template",
+]
+
+[[package]]
 name = "codex-protocol"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "chardetng",
  "chrono",
@@ -2377,8 +2406,8 @@ dependencies = [
 
 [[package]]
 name = "codex-response-debug-context"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "base64",
  "codex-api",
@@ -2388,8 +2417,8 @@ dependencies = [
 
 [[package]]
 name = "codex-rmcp-client"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "axum",
@@ -2405,6 +2434,7 @@ dependencies = [
  "codex-utils-pty",
  "futures",
  "keyring",
+ "memchr",
  "oauth2",
  "reqwest 0.13.4",
  "rmcp",
@@ -2423,8 +2453,8 @@ dependencies = [
 
 [[package]]
 name = "codex-rollout"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2436,20 +2466,21 @@ dependencies = [
  "codex-protocol",
  "codex-state",
  "codex-utils-path",
- "codex-utils-string",
  "regex",
  "serde",
  "serde_json",
+ "tempfile",
  "time",
  "tokio",
  "tracing",
  "uuid",
+ "zstd",
 ]
 
 [[package]]
 name = "codex-rollout-trace"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "codex-code-mode",
@@ -2463,8 +2494,8 @@ dependencies = [
 
 [[package]]
 name = "codex-sandboxing"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-network-proxy",
  "codex-protocol",
@@ -2480,12 +2511,13 @@ dependencies = [
 
 [[package]]
 name = "codex-shell-command"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "base64",
  "codex-protocol",
  "codex-utils-absolute-path",
+ "libc",
  "once_cell",
  "regex",
  "serde",
@@ -2499,8 +2531,8 @@ dependencies = [
 
 [[package]]
 name = "codex-shell-escalation"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2519,8 +2551,8 @@ dependencies = [
 
 [[package]]
 name = "codex-skills"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-utils-absolute-path",
  "include_dir",
@@ -2529,8 +2561,8 @@ dependencies = [
 
 [[package]]
 name = "codex-state"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2551,16 +2583,16 @@ dependencies = [
 
 [[package]]
 name = "codex-terminal-detection"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "tracing",
 ]
 
 [[package]]
 name = "codex-thread-store"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2579,8 +2611,8 @@ dependencies = [
 
 [[package]]
 name = "codex-tools"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "async-trait",
  "codex-app-server-protocol",
@@ -2602,8 +2634,8 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-absolute-path"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "dirs",
  "dunce",
@@ -2614,8 +2646,8 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-cache"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "lru",
  "sha1 0.10.6",
@@ -2624,8 +2656,8 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-cli"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "clap",
  "codex-protocol",
@@ -2636,8 +2668,8 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-home-dir"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-utils-absolute-path",
  "dirs",
@@ -2645,8 +2677,8 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-image"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "base64",
  "codex-utils-cache",
@@ -2658,8 +2690,8 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-output-truncation"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-protocol",
  "codex-utils-string",
@@ -2667,8 +2699,8 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-path"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-utils-absolute-path",
  "dunce",
@@ -2677,8 +2709,8 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-plugins"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "codex-exec-server",
  "codex-login",
@@ -2689,8 +2721,8 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-pty"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "filedescriptor",
@@ -2705,21 +2737,21 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-rustls-provider"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "rustls",
 ]
 
 [[package]]
 name = "codex-utils-stream-parser"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 
 [[package]]
 name = "codex-utils-string"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "regex-lite",
  "serde",
@@ -2728,13 +2760,13 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-template"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 
 [[package]]
 name = "codex-windows-sandbox"
-version = "0.137.0-dev+cxporter.740d942"
-source = "git+https://github.com/mkusaka/codex?rev=25f10779e3896e0010233994ad2de26942367cc2#25f10779e3896e0010233994ad2de26942367cc2"
+version = "0.137.0-dev+cxporter.3ea9e98"
+source = "git+https://github.com/mkusaka/codex?rev=2e20630cf640059c28174c7a0444f17b309111b8#2e20630cf640059c28174c7a0444f17b309111b8"
 dependencies = [
  "anyhow",
  "base64",
