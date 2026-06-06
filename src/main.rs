@@ -78,6 +78,7 @@ use tokio_util::sync::CancellationToken;
 #[derive(Debug, Parser)]
 #[command(name = "cxporter")]
 #[command(about = "Direct MCP access through Codex-owned config and auth.")]
+#[command(version)]
 struct Cli {
     #[clap(flatten)]
     config_overrides: CliConfigOverrides,
@@ -2186,5 +2187,16 @@ mod tests {
             exported_tool_base_name("my-server", None, "lookup.item"),
             "my_server.lookup_item"
         );
+    }
+
+    #[test]
+    fn cli_supports_version_flag() {
+        let error = Cli::try_parse_from(["cxporter", "--version"])
+            .expect_err("--version should print version and exit");
+
+        assert_eq!(error.kind(), clap::error::ErrorKind::DisplayVersion);
+        let output = error.to_string();
+        assert!(output.starts_with("cxporter "), "{output}");
+        assert!(output.contains(env!("CARGO_PKG_VERSION")), "{output}");
     }
 }
