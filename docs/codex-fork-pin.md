@@ -42,8 +42,8 @@ is what we pin to.
 
 ## What the fork contains
 
-A single branch (currently `cxporter-pin-<short-rev>`) based on the upstream
-revision we want, with exactly one commit changing:
+The `mkusaka/codex` `main` branch tracks the upstream revision we want while
+keeping the fork delta to one line:
 
 ```toml
 # codex-rs/Cargo.toml
@@ -63,26 +63,20 @@ as documented.
 When you want a newer `openai/codex`:
 
 ```bash
-# In a clone of openai/codex
-git fetch origin
-NEW_REV=$(git rev-parse origin/main)            # or a chosen upstream rev
+# In a clone of mkusaka/codex
+git fetch upstream
+NEW_REV=$(git rev-parse upstream/main)          # or a chosen upstream rev
 SHORT=$(git rev-parse --short "$NEW_REV")
 
-# Work in a throwaway worktree so your main checkout is untouched
-git worktree add -b "cxporter-pin-$SHORT" /tmp/codex-verbump "$NEW_REV"
+# Bring the fork branch to the chosen upstream revision, preserving only the
+# cxporter workspace-version delta on top.
+git merge "$NEW_REV"                            # resolve Cargo.toml if needed
 
 # Bump the workspace version away from 0.0.0 (pick a current-looking value)
 #   codex-rs/Cargo.toml -> [workspace.package] version = "X.Y.Z-dev+cxporter.$SHORT"
-
-cd /tmp/codex-verbump
 git commit --no-verify -am "chore: set workspace version for cxporter dependency pin"
-git push -f <your-fork-remote> "cxporter-pin-$SHORT"
+git push origin main
 FORK_REV=$(git rev-parse HEAD)
-
-# Clean up
-cd -            # back to the codex clone
-git worktree remove /tmp/codex-verbump --force
-git branch -D "cxporter-pin-$SHORT"
 ```
 
 Then in this repo:

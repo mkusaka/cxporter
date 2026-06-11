@@ -696,13 +696,15 @@ async fn manager_bundle_for_servers(
 
     let (tx_event, rx_event) = unbounded();
     drop(rx_event);
-    let (manager, cancel_token) = McpConnectionManager::new(
+    let cancel_token = CancellationToken::new();
+    let manager = McpConnectionManager::new(
         &mcp_servers,
         state.mcp_config.mcp_oauth_credentials_store_mode,
         auth_entries,
         &state.mcp_config.approval_policy,
         "cxporter".to_string(),
         tx_event,
+        cancel_token.clone(),
         PermissionProfile::default(),
         state.runtime_context.clone(),
         state.mcp_config.codex_home.clone(),
@@ -1767,7 +1769,7 @@ fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-async fn shutdown(mut bundle: ManagerBundle) {
+async fn shutdown(bundle: ManagerBundle) {
     bundle.cancel_token.cancel();
     bundle.manager.shutdown().await;
 }
