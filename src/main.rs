@@ -65,7 +65,6 @@ use rmcp::service::RequestContext;
 use rmcp::service::RoleServer;
 use serde::Deserialize;
 use serde::Serialize;
-use serde_json::Map as JsonMap;
 use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
@@ -388,6 +387,14 @@ struct FallbackTokenEntry {
     expires_at: Option<u64>,
     #[serde(default)]
     scopes: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct McpOAuthStoreKeyPayload<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    url: &'a str,
+    headers: BTreeMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -1706,12 +1713,13 @@ fn oauth_scopes_from_token_response(token_response: &Value) -> Vec<String> {
 }
 
 fn mcp_oauth_store_key(server_name: &str, url: &str) -> Result<String> {
-    let mut payload = JsonMap::new();
-    payload.insert("type".to_string(), Value::String("http".to_string()));
-    payload.insert("url".to_string(), Value::String(url.to_string()));
-    payload.insert("headers".to_string(), Value::Object(JsonMap::new()));
-    let serialized = serde_json::to_string(&Value::Object(payload))
-        .context("failed to serialize MCP OAuth key payload")?;
+    let payload = McpOAuthStoreKeyPayload {
+        kind: "http",
+        url,
+        headers: BTreeMap::new(),
+    };
+    let serialized =
+        serde_json::to_string(&payload).context("failed to serialize MCP OAuth key payload")?;
     let mut hasher = Sha256::new();
     hasher.update(serialized.as_bytes());
     let digest = hasher.finalize();
@@ -2188,6 +2196,14 @@ mod tests {
         assert_eq!(
             exported_tool_base_name("my-server", None, "lookup.item"),
             "my_server.lookup_item"
+        );
+    }
+
+    #[test]
+    fn mcp_oauth_store_key_matches_codex_keychain_account() {
+        assert_eq!(
+            mcp_oauth_store_key("figma", "https://mcp.figma.com/mcp").unwrap(),
+            "figma|d39d3b6252bc1ac5"
         );
     }
 
