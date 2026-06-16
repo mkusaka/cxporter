@@ -693,6 +693,7 @@ async fn manager_bundle_for_servers(
     let auth_entries = compute_auth_statuses(
         mcp_servers.iter(),
         state.mcp_config.mcp_oauth_credentials_store_mode,
+        state.mcp_config.auth_keyring_backend_kind,
         state.auth.as_ref(),
     )
     .await;
@@ -707,6 +708,7 @@ async fn manager_bundle_for_servers(
     let manager = McpConnectionManager::new(
         &mcp_servers,
         state.mcp_config.mcp_oauth_credentials_store_mode,
+        state.mcp_config.auth_keyring_backend_kind,
         auth_entries,
         &state.mcp_config.approval_policy,
         "cxporter".to_string(),

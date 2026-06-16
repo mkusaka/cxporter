@@ -9,7 +9,7 @@ description = "Direct CLI access to Codex-authenticated MCP servers."
 anyhow = "1"
 async-channel = "2.3.1"
 clap = { version = "4", features = ["derive"] }
-# These point at a thin fork of openai/codex@53b5019 whose only change is
+# These point at a thin fork of openai/codex@40e7dda4d whose only change is
 # bumping the workspace version away from "0.0.0". codex-core's
 # resolve_mcp_oauth_credentials_store_mode() coerces keyring/auto OAuth store
 # modes to "file" whenever CARGO_PKG_VERSION == "0.0.0" (its local-dev guard),
@@ -17,15 +17,15 @@ clap = { version = "4", features = ["derive"] }
 # When advancing the pin: update the fork from the new upstream rev, re-apply
 # the one-line version bump on top, push, and update the rev here. Branch:
 # mkusaka/codex@main.
-codex-core = { git = "https://github.com/mkusaka/codex", rev = "ebd948fce23387349b764d16ea0b54e97e677a62", package = "codex-core" }
-codex-core-plugins = { git = "https://github.com/mkusaka/codex", rev = "ebd948fce23387349b764d16ea0b54e97e677a62", package = "codex-core-plugins" }
-codex-config = { git = "https://github.com/mkusaka/codex", rev = "ebd948fce23387349b764d16ea0b54e97e677a62", package = "codex-config" }
-codex-exec-server = { git = "https://github.com/mkusaka/codex", rev = "ebd948fce23387349b764d16ea0b54e97e677a62", package = "codex-exec-server" }
-codex-keyring-store = { git = "https://github.com/mkusaka/codex", rev = "ebd948fce23387349b764d16ea0b54e97e677a62", package = "codex-keyring-store" }
-codex-login = { git = "https://github.com/mkusaka/codex", rev = "ebd948fce23387349b764d16ea0b54e97e677a62", package = "codex-login" }
-codex-mcp = { git = "https://github.com/mkusaka/codex", rev = "ebd948fce23387349b764d16ea0b54e97e677a62", package = "codex-mcp" }
-codex-protocol = { git = "https://github.com/mkusaka/codex", rev = "ebd948fce23387349b764d16ea0b54e97e677a62", package = "codex-protocol" }
-codex-utils-cli = { git = "https://github.com/mkusaka/codex", rev = "ebd948fce23387349b764d16ea0b54e97e677a62", package = "codex-utils-cli" }
+codex-core = { git = "https://github.com/mkusaka/codex", rev = "011e754d13c06c294b3deaaebe589623b0423cd4", package = "codex-core" }
+codex-core-plugins = { git = "https://github.com/mkusaka/codex", rev = "011e754d13c06c294b3deaaebe589623b0423cd4", package = "codex-core-plugins" }
+codex-config = { git = "https://github.com/mkusaka/codex", rev = "011e754d13c06c294b3deaaebe589623b0423cd4", package = "codex-config" }
+codex-exec-server = { git = "https://github.com/mkusaka/codex", rev = "011e754d13c06c294b3deaaebe589623b0423cd4", package = "codex-exec-server" }
+codex-keyring-store = { git = "https://github.com/mkusaka/codex", rev = "011e754d13c06c294b3deaaebe589623b0423cd4", package = "codex-keyring-store" }
+codex-login = { git = "https://github.com/mkusaka/codex", rev = "011e754d13c06c294b3deaaebe589623b0423cd4", package = "codex-login" }
+codex-mcp = { git = "https://github.com/mkusaka/codex", rev = "011e754d13c06c294b3deaaebe589623b0423cd4", package = "codex-mcp" }
+codex-protocol = { git = "https://github.com/mkusaka/codex", rev = "011e754d13c06c294b3deaaebe589623b0423cd4", package = "codex-protocol" }
+codex-utils-cli = { git = "https://github.com/mkusaka/codex", rev = "011e754d13c06c294b3deaaebe589623b0423cd4", package = "codex-utils-cli" }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 rmcp = { version = "1.7.0", default-features = false, features = ["server", "transport-io"] }
 serde = { version = "1", features = ["derive"] }
