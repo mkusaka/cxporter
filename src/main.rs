@@ -27,6 +27,7 @@ use clap::Subcommand;
 use clap::ValueEnum;
 use codex_config::McpServerTransportConfig;
 use codex_config::types::OAuthCredentialsStoreMode;
+use codex_core::McpManager;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
@@ -621,8 +622,9 @@ async fn load_state(config_overrides: &CliConfigOverrides) -> Result<CodexState>
         .build()
         .await
         .context("failed to load Codex config")?;
-    let plugins_manager = PluginsManager::new(config.codex_home.to_path_buf());
-    let mcp_config = config.to_mcp_config(&plugins_manager).await;
+    let plugins_manager = Arc::new(PluginsManager::new(config.codex_home.to_path_buf()));
+    let mcp_manager = McpManager::new(plugins_manager);
+    let mcp_config = mcp_manager.runtime_config(&config).await;
     let auth_manager =
         AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false).await;
     let auth = auth_manager.auth().await;
