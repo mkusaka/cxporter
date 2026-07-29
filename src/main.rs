@@ -39,20 +39,21 @@ use codex_keyring_store::KeyringStore;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_mcp::McpConfig;
-use codex_mcp::McpConnectionManager;
+use codex_mcp::McpRuntime;
 use codex_mcp::McpRuntimeContext;
+use codex_mcp::McpRuntimeInput;
 use codex_mcp::ToolInfo;
 use codex_mcp::codex_apps_tools_cache_key;
 use codex_mcp::compute_auth_statuses;
 use codex_mcp::effective_mcp_servers;
 use codex_mcp::host_owned_codex_apps_enabled;
-use codex_mcp::tool_plugin_provenance;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::protocol::McpAuthStatus;
 use codex_utils_cli::CliConfigOverrides;
 use rmcp::ServerHandler;
 use rmcp::ServiceExt;
 use rmcp::model::CallToolRequestParams;
+use rmcp::model::CallToolResponse as RmcpCallToolResponse;
 use rmcp::model::CallToolResult as RmcpCallToolResult;
 use rmcp::model::ErrorData as McpError;
 use rmcp::model::Implementation;
@@ -269,13 +270,15 @@ enum ListFormat {
 }
 
 struct CodexState {
+    mcp_manager: McpManager,
     mcp_config: McpConfig,
+    auth_manager: Arc<AuthManager>,
     auth: Option<CodexAuth>,
     runtime_context: McpRuntimeContext,
 }
 
 struct ManagerBundle {
-    manager: McpConnectionManager,
+    manager: McpRuntime,
     cancel_token: CancellationToken,
     server_names: Vec<String>,
     auth_statuses: HashMap<String, McpAuthStatus>,
@@ -631,7 +634,9 @@ async fn load_state(config_overrides: &CliConfigOverrides) -> Result<CodexState>
     let runtime_context = load_runtime_context(&config).await?;
 
     Ok(CodexState {
+        mcp_manager,
         mcp_config,
+        auth_manager,
         auth,
         runtime_context,
     })
@@ -659,6 +664,7 @@ async fn load_runtime_context(config: &Config) -> Result<McpRuntimeContext> {
     let environment_manager = EnvironmentManager::from_codex_home(
         config.codex_home.to_path_buf(),
         Some(local_runtime_paths),
+        config.http_client_factory(),
     )
     .await?;
     Ok(McpRuntimeContext::new(
@@ -697,36 +703,40 @@ async fn manager_bundle_for_servers(
         state.mcp_config.mcp_oauth_credentials_store_mode,
         state.mcp_config.auth_keyring_backend_kind,
         state.auth.as_ref(),
+        &state.runtime_context,
     )
     .await;
     let auth_statuses = auth_entries
         .iter()
-        .map(|(name, entry)| (name.clone(), entry.auth_status))
+        .map(|(name, entry)| (name.clone(), entry.auth_state.into()))
         .collect::<HashMap<_, _>>();
 
     let (tx_event, rx_event) = unbounded();
     drop(rx_event);
     let cancel_token = CancellationToken::new();
-    let manager = McpConnectionManager::new(
-        &mcp_servers,
-        state.mcp_config.mcp_oauth_credentials_store_mode,
-        state.mcp_config.auth_keyring_backend_kind,
-        auth_entries,
-        &state.mcp_config.approval_policy,
-        "cxporter".to_string(),
-        tx_event,
-        cancel_token.clone(),
-        PermissionProfile::default(),
-        state.runtime_context.clone(),
-        state.mcp_config.codex_home.clone(),
-        codex_apps_tools_cache_key(state.auth.as_ref()),
-        host_owned_codex_apps_enabled(&state.mcp_config, state.auth.as_ref()),
-        state.mcp_config.prefix_mcp_tool_names,
-        state.mcp_config.client_elicitation_capability.clone(),
-        tool_plugin_provenance(&state.mcp_config),
-        state.auth.as_ref(),
-        /*elicitation_reviewer*/ None,
-    )
+    let mut runtime_config = state.mcp_config.clone();
+    runtime_config.permission_profile = PermissionProfile::default();
+    let codex_apps_auth_manager =
+        host_owned_codex_apps_enabled(&runtime_config, state.auth.as_ref())
+            .then(|| Arc::clone(&state.auth_manager));
+    let manager = McpRuntime::new(McpRuntimeInput {
+        config: Arc::new(runtime_config),
+        plugins_available: false,
+        ready_selected_capability_roots: Vec::new(),
+        mcp_servers,
+        submit_id: "cxporter".to_string(),
+        tx_event: Some(tx_event),
+        startup_cancellation_token: cancel_token.clone(),
+        runtime_context: state.runtime_context.clone(),
+        codex_apps_tools_cache: state.mcp_manager.codex_apps_tools_cache(),
+        tool_catalog_cache: state.mcp_manager.tool_catalog_cache(),
+        codex_apps_tools_cache_key: codex_apps_tools_cache_key(state.auth.as_ref()),
+        supports_openai_form_elicitation: false,
+        auth: state.auth.clone(),
+        codex_apps_auth_manager,
+        elicitation_reviewer: None,
+        elicitation_lifecycle: None,
+    })
     .await;
 
     Ok(ManagerBundle {
@@ -798,7 +808,7 @@ async fn build_exported_tool_index(bundle: &ManagerBundle) -> Result<ExportedToo
 }
 
 async fn build_tool_catalog(bundle: &ManagerBundle) -> ToolCatalog {
-    tool_catalog_from_infos(bundle.manager.list_all_tools().await)
+    tool_catalog_from_infos(bundle.manager.latest_list_all_tools().await)
 }
 
 fn tool_catalog_from_infos(mut tool_infos: Vec<ToolInfo>) -> ToolCatalog {
@@ -886,7 +896,7 @@ impl ServerHandler for CxporterMcpServer {
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> Result<RmcpCallToolResult, McpError> {
+    ) -> Result<RmcpCallToolResponse, McpError> {
         let route = self
             .index
             .routes
@@ -898,14 +908,14 @@ impl ServerHandler for CxporterMcpServer {
                 )
             })?;
         let arguments = Some(Value::Object(request.arguments.unwrap_or_default()));
-        let meta = request.meta.map(|meta| Value::Object(meta.0));
+        let meta = request.meta.map(|meta| Value::Object(meta.0.0));
         let bundle_guard = self.bundle.lock().await;
         let bundle = bundle_guard.as_ref().ok_or_else(|| {
             McpError::internal_error("cxporter MCP server is shutting down", None)
         })?;
         let result = bundle
             .manager
-            .call_tool(&route.server, &route.tool, arguments, meta)
+            .latest_call_tool(&route.server, &route.tool, arguments, meta)
             .await
             .map_err(|error| {
                 McpError::internal_error(
@@ -916,7 +926,7 @@ impl ServerHandler for CxporterMcpServer {
                     None,
                 )
             })?;
-        codex_call_tool_result_to_rmcp(result)
+        codex_call_tool_result_to_rmcp(result).map(Into::into)
     }
 }
 
@@ -1039,9 +1049,14 @@ async fn list_servers(
     }
 
     let (resources_by_server, templates_by_server) = if detail == Detail::Full {
+        let binding = bundle
+            .manager
+            .current_binding()
+            .await
+            .ok_or_else(|| anyhow!("MCP runtime has no current binding"))?;
         (
-            bundle.manager.list_all_resources().await,
-            bundle.manager.list_all_resource_templates().await,
+            binding.list_all_resources(|_| true).await,
+            binding.list_all_resource_templates(|_| true).await,
         )
     } else {
         (HashMap::new(), HashMap::new())
@@ -1102,7 +1117,7 @@ async fn call_tool_once(
         }
         bundle
             .manager
-            .call_tool(server, &entry.raw_tool, Some(arguments), /*meta*/ None)
+            .latest_call_tool(server, &entry.raw_tool, Some(arguments), /*meta*/ None)
             .await
     }
     .await;
@@ -1118,7 +1133,7 @@ async fn read_resource(
     let bundle = manager_bundle(state, Some(server)).await?;
     let result = bundle
         .manager
-        .read_resource(server, ReadResourceRequestParams::new(uri.to_string()))
+        .latest_read_resource(server, ReadResourceRequestParams::new(uri.to_string()))
         .await;
     shutdown(bundle).await;
     result
@@ -1285,12 +1300,16 @@ fn validate_required_arguments(
 async fn list_apps(state: &CodexState, force: bool) -> Result<Vec<AppConnector>> {
     let bundle = manager_bundle(state, Some("codex_apps")).await?;
     let tool_infos = if force {
-        match bundle.manager.hard_refresh_codex_apps_tools_cache().await {
+        match bundle
+            .manager
+            .latest_hard_refresh_codex_apps_tools_cache()
+            .await
+        {
             Ok(tools) => tools,
-            Err(_) => bundle.manager.list_all_tools().await,
+            Err(_) => bundle.manager.latest_list_all_tools().await,
         }
     } else {
-        bundle.manager.list_all_tools().await
+        bundle.manager.latest_list_all_tools().await
     };
 
     let mut connectors = BTreeMap::<String, AppConnector>::new();
@@ -1338,9 +1357,7 @@ fn inspect_auth(
     let server = servers
         .get(server_name)
         .ok_or_else(|| anyhow!("unknown MCP server '{server_name}'"))?;
-    let config = server
-        .configured_config()
-        .ok_or_else(|| anyhow!("MCP server '{server_name}' has no inspectable config"))?;
+    let config = server.config();
 
     let McpServerTransportConfig::StreamableHttp {
         url,
@@ -2037,7 +2054,7 @@ async fn execute_batch_call(
         async move {
             bundle
                 .manager
-                .call_tool(&server, &raw_tool, Some(arguments), /*meta*/ None)
+                .latest_call_tool(&server, &raw_tool, Some(arguments), /*meta*/ None)
                 .await
         }
     })

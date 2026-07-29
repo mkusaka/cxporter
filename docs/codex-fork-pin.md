@@ -49,7 +49,7 @@ keeping the fork delta to one line:
 # codex-rs/Cargo.toml
 [workspace.package]
 -version = "0.0.0"
-+version = "0.137.0-dev+cxporter.<short-rev>"
++version = "0.146.0-dev+cxporter.<short-rev>"
 ```
 
 Any non-`"0.0.0"` value works; the build metadata (`+cxporter.<short-rev>`)
@@ -74,7 +74,7 @@ git merge "$NEW_REV"                            # resolve Cargo.toml if needed
 
 # Bump the workspace version away from 0.0.0 (pick a current-looking value)
 #   codex-rs/Cargo.toml -> [workspace.package] version = "X.Y.Z-dev+cxporter.$SHORT"
-git commit --no-verify -am "chore: set workspace version for cxporter dependency pin"
+git commit -am "[codex] Bump cxporter fork workspace version"
 git push origin main
 FORK_REV=$(git rev-parse HEAD)
 ```
