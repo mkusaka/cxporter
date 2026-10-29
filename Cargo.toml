@@ -17,17 +17,17 @@ clap = { version = "4", features = ["derive"] }
 # When advancing the pin: update the fork from the new upstream rev, re-apply
 # the one-line version bump on top, push, and update the rev here. Branch:
 # mkusaka/codex@main.
-codex-core = { git = "https://github.com/mkusaka/codex", rev = "39979b59a55ccc52b90b39810f2f355f6498084e", package = "codex-core" }
-codex-core-plugins = { git = "https://github.com/mkusaka/codex", rev = "39979b59a55ccc52b90b39810f2f355f6498084e", package = "codex-core-plugins" }
-codex-config = { git = "https://github.com/mkusaka/codex", rev = "39979b59a55ccc52b90b39810f2f355f6498084e", package = "codex-config" }
-codex-exec-server = { git = "https://github.com/mkusaka/codex", rev = "39979b59a55ccc52b90b39810f2f355f6498084e", package = "codex-exec-server" }
-codex-keyring-store = { git = "https://github.com/mkusaka/codex", rev = "39979b59a55ccc52b90b39810f2f355f6498084e", package = "codex-keyring-store" }
-codex-login = { git = "https://github.com/mkusaka/codex", rev = "39979b59a55ccc52b90b39810f2f355f6498084e", package = "codex-login" }
-codex-mcp = { git = "https://github.com/mkusaka/codex", rev = "39979b59a55ccc52b90b39810f2f355f6498084e", package = "codex-mcp" }
-codex-protocol = { git = "https://github.com/mkusaka/codex", rev = "39979b59a55ccc52b90b39810f2f355f6498084e", package = "codex-protocol" }
-codex-utils-cli = { git = "https://github.com/mkusaka/codex", rev = "39979b59a55ccc52b90b39810f2f355f6498084e", package = "codex-utils-cli" }
+codex-core = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-core" }
+codex-core-plugins = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-core-plugins" }
+codex-config = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-config" }
+codex-exec-server = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-exec-server" }
+codex-keyring-store = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-keyring-store" }
+codex-login = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-login" }
+codex-mcp = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-mcp" }
+codex-protocol = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-protocol" }
+codex-utils-cli = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-utils-cli" }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
-rmcp = { version = "=3.0.0-beta.3", default-features = false, features = ["server", "transport-io"] }
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "98a54789b80110ad210495c4ad845c89e1980471", version = "=3.5.1", default-features = false, features = ["server", "transport-io"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

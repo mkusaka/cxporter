@@ -31,9 +31,9 @@ use codex_core::McpManager;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
-use codex_core_plugins::PluginsManager;
+use codex_core::plugins_manager_for_config;
 use codex_exec_server::EnvironmentManager;
-use codex_exec_server::ExecServerRuntimePaths;
+use codex_exec_server::ExecServerRuntimeOptions;
 use codex_keyring_store::DefaultKeyringStore;
 use codex_keyring_store::KeyringStore;
 use codex_login::AuthManager;
@@ -42,11 +42,13 @@ use codex_mcp::McpConfig;
 use codex_mcp::McpRuntime;
 use codex_mcp::McpRuntimeContext;
 use codex_mcp::McpRuntimeInput;
+use codex_mcp::McpStartupPolicy;
 use codex_mcp::ToolInfo;
 use codex_mcp::codex_apps_tools_cache_key;
 use codex_mcp::compute_auth_statuses;
 use codex_mcp::effective_mcp_servers;
 use codex_mcp::host_owned_codex_apps_enabled;
+use codex_protocol::mcp::ClientMcpExtensions;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::protocol::McpAuthStatus;
 use codex_utils_cli::CliConfigOverrides;
@@ -625,11 +627,16 @@ async fn load_state(config_overrides: &CliConfigOverrides) -> Result<CodexState>
         .build()
         .await
         .context("failed to load Codex config")?;
-    let plugins_manager = Arc::new(PluginsManager::new(config.codex_home.to_path_buf()));
+    let auth_manager =
+        AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false)
+            .await
+            .context("failed to initialize Codex auth")?;
+    let plugins_manager = Arc::new(plugins_manager_for_config(
+        &config,
+        Arc::clone(&auth_manager),
+    ));
     let mcp_manager = McpManager::new(plugins_manager);
     let mcp_config = mcp_manager.runtime_config(&config).await;
-    let auth_manager =
-        AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false).await;
     let auth = auth_manager.auth().await;
     let runtime_context = load_runtime_context(&config).await?;
 
@@ -657,7 +664,7 @@ fn find_on_path(binary_name: &str) -> Option<PathBuf> {
 }
 
 async fn load_runtime_context(config: &Config) -> Result<McpRuntimeContext> {
-    let local_runtime_paths = ExecServerRuntimePaths::from_optional_paths(
+    let local_runtime_paths = ExecServerRuntimeOptions::from_optional_paths(
         config.codex_self_exe.clone(),
         config.codex_linux_sandbox_exe.clone(),
     )?;
@@ -703,6 +710,8 @@ async fn manager_bundle_for_servers(
         state.mcp_config.mcp_oauth_credentials_store_mode,
         state.mcp_config.auth_keyring_backend_kind,
         state.auth.as_ref(),
+        Some(&state.auth_manager),
+        &state.mcp_config.ema_state,
         &state.runtime_context,
     )
     .await;
@@ -716,10 +725,9 @@ async fn manager_bundle_for_servers(
     let cancel_token = CancellationToken::new();
     let mut runtime_config = state.mcp_config.clone();
     runtime_config.permission_profile = PermissionProfile::default();
-    let codex_apps_auth_manager =
-        host_owned_codex_apps_enabled(&runtime_config, state.auth.as_ref())
-            .then(|| Arc::clone(&state.auth_manager));
     let manager = McpRuntime::new(McpRuntimeInput {
+        network_policy_metadata: None,
+        startup_policy: McpStartupPolicy::Eager,
         config: Arc::new(runtime_config),
         plugins_available: false,
         ready_selected_capability_roots: Vec::new(),
@@ -731,9 +739,9 @@ async fn manager_bundle_for_servers(
         codex_apps_tools_cache: state.mcp_manager.codex_apps_tools_cache(),
         tool_catalog_cache: state.mcp_manager.tool_catalog_cache(),
         codex_apps_tools_cache_key: codex_apps_tools_cache_key(state.auth.as_ref()),
-        supports_openai_form_elicitation: false,
+        client_mcp_extensions: ClientMcpExtensions::default(),
         auth: state.auth.clone(),
-        codex_apps_auth_manager,
+        auth_manager: Some(Arc::clone(&state.auth_manager)),
         elicitation_reviewer: None,
         elicitation_lifecycle: None,
     })
@@ -915,7 +923,15 @@ impl ServerHandler for CxporterMcpServer {
         })?;
         let result = bundle
             .manager
-            .latest_call_tool(&route.server, &route.tool, arguments, meta)
+            .latest_call_tool(
+                &route.server,
+                &route.tool,
+                /*environment_id*/ None,
+                arguments,
+                meta,
+                /*requested_timeout*/ None,
+                /*wait_for_server*/ true,
+            )
             .await
             .map_err(|error| {
                 McpError::internal_error(
@@ -926,7 +942,7 @@ impl ServerHandler for CxporterMcpServer {
                     None,
                 )
             })?;
-        codex_call_tool_result_to_rmcp(result).map(Into::into)
+        codex_call_tool_result_to_rmcp(result.result).map(Into::into)
     }
 }
 
@@ -1117,8 +1133,17 @@ async fn call_tool_once(
         }
         bundle
             .manager
-            .latest_call_tool(server, &entry.raw_tool, Some(arguments), /*meta*/ None)
+            .latest_call_tool(
+                server,
+                &entry.raw_tool,
+                /*environment_id*/ None,
+                Some(arguments),
+                /*meta*/ None,
+                /*requested_timeout*/ None,
+                /*wait_for_server*/ true,
+            )
             .await
+            .map(|result| result.result)
     }
     .await;
     shutdown(bundle).await;
@@ -1364,6 +1389,7 @@ fn inspect_auth(
         bearer_token_env_var,
         http_headers,
         env_http_headers,
+        ..
     } = &config.transport
     else {
         bail!(
@@ -2054,8 +2080,17 @@ async fn execute_batch_call(
         async move {
             bundle
                 .manager
-                .latest_call_tool(&server, &raw_tool, Some(arguments), /*meta*/ None)
+                .latest_call_tool(
+                    &server,
+                    &raw_tool,
+                    /*environment_id*/ None,
+                    Some(arguments),
+                    /*meta*/ None,
+                    /*requested_timeout*/ None,
+                    /*wait_for_server*/ true,
+                )
                 .await
+                .map(|result| result.result)
         }
     })
     .await;
@@ -2177,6 +2212,7 @@ fn metadata_string(metadata: &serde_json::Map<String, Value>, key: &str) -> Opti
 
 fn auth_status_to_wire(status: McpAuthStatus) -> &'static str {
     match status {
+        McpAuthStatus::Unknown => "unknown",
         McpAuthStatus::Unsupported => "unsupported",
         McpAuthStatus::NotLoggedIn => "notLoggedIn",
         McpAuthStatus::BearerToken => "bearerToken",
