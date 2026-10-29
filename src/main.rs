@@ -63,7 +63,7 @@ use rmcp::model::ListToolsResult;
 use rmcp::model::PaginatedRequestParams;
 use rmcp::model::ReadResourceRequestParams;
 use rmcp::model::ServerCapabilities;
-use rmcp::model::ServerInfo;
+use rmcp::model::ServerConfig;
 use rmcp::model::Tool;
 use rmcp::service::RequestContext;
 use rmcp::service::RoleServer;
@@ -874,8 +874,8 @@ fn effective_supports_parallel_tool_calls(tool_info: &ToolInfo) -> bool {
 }
 
 impl ServerHandler for CxporterMcpServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(
                 Implementation::new("cxporter", env!("CARGO_PKG_VERSION"))
                     .with_title("cxporter")

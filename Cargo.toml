@@ -18,7 +18,6 @@ clap = { version = "4", features = ["derive"] }
 # the one-line version bump on top, push, and update the rev here. Branch:
 # mkusaka/codex@main.
 codex-core = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-core" }
-codex-core-plugins = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-core-plugins" }
 codex-config = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-config" }
 codex-exec-server = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-exec-server" }
 codex-keyring-store = { git = "https://github.com/mkusaka/codex", rev = "1a9cdf6220e0f3f37f26fe635efce359b31b081d", package = "codex-keyring-store" }
