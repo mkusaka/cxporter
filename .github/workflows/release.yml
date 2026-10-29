@@ -1,0 +1,185 @@
+name: Release
+on:
+  push:
+    tags:
+      - "v*.*.*"
+permissions: {}
+jobs:
+  verify:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+  release:
+    name: Create release
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_url: ${{ steps.version.outputs.release_url }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Validate release configuration
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [[ -z "${HOMEBREW_TAP_TOKEN:-}" ]]; then
+            echo "::error::Missing required secret: HOMEBREW_TAP_TOKEN (environment: release)"
+            exit 1
+          fi
+      - name: Validate tag version
+        id: version
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tags must use vX.Y.Z format, got $GITHUB_REF_NAME"
+            exit 1
+          fi
+          tag_version="${GITHUB_REF_NAME:1}"
+          package_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          if [[ "$tag_version" != "$package_version" ]]; then
+            echo "::error::Tag version ($tag_version) must match Cargo.toml version ($package_version)"
+            exit 1
+          fi
+          echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+          echo "release_url=https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists"
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --verify-tag \
+            --title "cxporter $GITHUB_REF_NAME" \
+            --generate-notes
+  package:
+    name: Package (${{ matrix.label }})
+    needs: release
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Apple Silicon
+            runner: macos-15
+            archive_suffix: darwin-arm64
+          - label: Intel
+            runner: macos-15-intel
+            archive_suffix: darwin-x64
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+      - name: Build binary
+        run: cargo build --release --locked
+      - name: Package archive
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          RELEASE_URL: ${{ needs.release.outputs.release_url }}
+          ARCHIVE_SUFFIX: ${{ matrix.archive_suffix }}
+        run: |
+          target/release/cxporter --version
+          mkdir -p release-root/skills
+          cp target/release/cxporter release-root/cxporter
+          cp -R skills/. release-root/skills/
+          asset_name="cxporter-${VERSION}-${ARCHIVE_SUFFIX}.tar.gz"
+          tar -C release-root -czf "$asset_name" .
+          sha256=$(shasum -a 256 "$asset_name" | awk '{print $1}')
+          cat > "release-metadata-${ARCHIVE_SUFFIX}.json" <<EOF
+          {
+            "archive_suffix": "${ARCHIVE_SUFFIX}",
+            "asset_name": "${asset_name}",
+            "asset_url": "${RELEASE_URL}/${asset_name}",
+            "sha256": "${sha256}"
+          }
+          EOF
+          echo "ASSET_NAME=$asset_name" >> "$GITHUB_ENV"
+      - name: Upload archive to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "$ASSET_NAME" --clobber
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-metadata-${{ matrix.archive_suffix }}
+          path: release-metadata-${{ matrix.archive_suffix }}.json
+  publish:
+    name: Publish release
+    needs: [release, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --repo "$GITHUB_REPOSITORY"
+  update_homebrew_tap:
+    name: Update Homebrew tap
+    needs: [release, package, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions: {}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-metadata-*
+          merge-multiple: true
+      - name: Render Homebrew formula
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          FORMULA_PATH="$RUNNER_TEMP/cxporter.rb"
+          DARWIN_ARM64_URL=$(jq -r 'select(.archive_suffix == "darwin-arm64") | .asset_url' release-metadata-*.json)
+          DARWIN_ARM64_SHA256=$(jq -r 'select(.archive_suffix == "darwin-arm64") | .sha256' release-metadata-*.json)
+          DARWIN_X64_URL=$(jq -r 'select(.archive_suffix == "darwin-x64") | .asset_url' release-metadata-*.json)
+          DARWIN_X64_SHA256=$(jq -r 'select(.archive_suffix == "darwin-x64") | .sha256' release-metadata-*.json)
+          export FORMULA_PATH DARWIN_ARM64_URL DARWIN_ARM64_SHA256 DARWIN_X64_URL DARWIN_X64_SHA256
+          cp packaging/homebrew/cxporter.rb "$FORMULA_PATH"
+          ruby <<'RUBY'
+          path = ENV.fetch("FORMULA_PATH")
+          text = File.read(path)
+          {
+            "__VERSION__" => ENV.fetch("VERSION"),
+            "__DARWIN_ARM64_URL__" => ENV.fetch("DARWIN_ARM64_URL"),
+            "__DARWIN_ARM64_SHA256__" => ENV.fetch("DARWIN_ARM64_SHA256"),
+            "__DARWIN_X64_URL__" => ENV.fetch("DARWIN_X64_URL"),
+            "__DARWIN_X64_SHA256__" => ENV.fetch("DARWIN_X64_SHA256"),
+          }.each do |placeholder, replacement|
+            raise "missing placeholder: #{placeholder}" unless text.include?(placeholder)
+            text.gsub!(placeholder, replacement)
+          end
+          File.write(path, text)
+          RUBY
+          ruby -c "$FORMULA_PATH"
+          echo "FORMULA_CONTENTS_B64=$(base64 < "$FORMULA_PATH" | tr -d '\n')" >> "$GITHUB_ENV"
+      - name: Dispatch tap update
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          gh api repos/mkusaka/homebrew-tap/dispatches \
+            -f event_type=update-formula \
+            -f "client_payload[formula]=cxporter" \
+            -f "client_payload[repository]=$GITHUB_REPOSITORY" \
+            -f "client_payload[version]=$VERSION" \
+            -f "client_payload[formula_contents_b64]=$FORMULA_CONTENTS_B64"
